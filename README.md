@@ -7,14 +7,14 @@ Production-ready Docker container for Stable Diffusion training using Kohya's sd
 - **Kohya's sd-scripts**: Industry-standard training framework
 - **DreamBooth + LoRA**: Identity preservation with efficient fine-tuning
 - **SageMaker Integration**: Ready for AWS SageMaker training jobs
-- **Optimized Dependencies**: Compatible PyTorch 2.0.1 + CUDA 11.7 stack
+- **Latest Dependencies**: PyTorch 2.4.0 + CUDA 12.4 stack with optimized performance
 
 ## Container Contents
 
-- PyTorch 2.0.1 with CUDA 11.7 support
+- PyTorch 2.4.0 with CUDA 12.4 support
 - Kohya's sd-scripts (latest)
-- xformers 0.0.21 (optimized for PyTorch 2.0.1)
-- bitsandbytes 0.41.0 (8-bit optimization)
+- xformers (latest, optimized for PyTorch 2.4.0)
+- bitsandbytes (latest, 8-bit optimization)
 - SageMaker training toolkit
 - Custom training wrapper for automatic model type detection
 

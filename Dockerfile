@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.0.1-cuda11.7-cudnn8-devel
+FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -10,26 +10,27 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip and install wheel
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# Install PyTorch and torchvision first (specific versions)
-RUN pip install torch==2.0.1 torchvision==0.15.2 --index-url https://download.pytorch.org/whl/cu117
+# PyTorch 2.4.0 and torchvision are already installed in the base image
+# But let's ensure we have the latest compatible versions
+RUN pip install torch==2.4.0 torchvision --index-url https://download.pytorch.org/whl/cu124
 
 # Clone Kohya's training scripts
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /kohya
 WORKDIR /kohya
 
-# Install Kohya requirements one by one to avoid conflicts
-RUN pip install accelerate==0.21.0
-RUN pip install transformers==4.30.0
-RUN pip install diffusers==0.18.2
-RUN pip install xformers==0.0.21 --extra-index-url https://download.pytorch.org/whl/cu117
+# Install Kohya requirements with latest compatible versions for PyTorch 2.4.0
+RUN pip install accelerate
+RUN pip install transformers
+RUN pip install diffusers
+RUN pip install xformers --index-url https://download.pytorch.org/whl/cu124
 RUN pip install datasets
 RUN pip install safetensors
 RUN pip install gradio
 RUN pip install altair
 RUN pip install easygui
 RUN pip install einops
-RUN pip install pytorch-lightning==1.9.0
-RUN pip install bitsandbytes==0.41.0
+RUN pip install pytorch-lightning
+RUN pip install bitsandbytes
 RUN pip install tensorboard
 RUN pip install wandb
 
