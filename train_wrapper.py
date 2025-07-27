@@ -218,11 +218,39 @@ def main():
         output_dir = Path(args.model_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
-        # Find and copy LoRA files
-        for lora_file in Path("/tmp/lora_models").glob("*.safetensors"):
-            import shutil
-            shutil.copy2(lora_file, output_dir / lora_file.name)
-            logger.info(f"Copied {lora_file.name} to output directory")
+        # Find and copy LoRA files from Kohya output
+        lora_output_dir = Path("/tmp/lora_models")
+        
+        if not lora_output_dir.exists():
+            logger.error(f"LoRA output directory not found: {lora_output_dir}")
+            sys.exit(1)
+            
+        # List all files in the output directory
+        all_files = list(lora_output_dir.rglob("*"))
+        logger.info(f"Files in {lora_output_dir}: {[f.name for f in all_files]}")
+        
+        # Copy all model files
+        import shutil
+        model_files_copied = 0
+        for model_file in lora_output_dir.rglob("*.safetensors"):
+            dest_file = output_dir / model_file.name
+            shutil.copy2(model_file, dest_file)
+            logger.info(f"Copied {model_file.name} to {dest_file}")
+            model_files_copied += 1
+            
+        # Also copy any .ckpt files
+        for model_file in lora_output_dir.rglob("*.ckpt"):
+            dest_file = output_dir / model_file.name
+            shutil.copy2(model_file, dest_file)
+            logger.info(f"Copied {model_file.name} to {dest_file}")
+            model_files_copied += 1
+            
+        if model_files_copied == 0:
+            logger.error("No model files found to copy!")
+            logger.error(f"Expected files in: {lora_output_dir}")
+            sys.exit(1)
+        else:
+            logger.info(f"Successfully copied {model_files_copied} model file(s)")
         
         # Create metadata
         metadata = {
