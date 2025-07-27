@@ -1,0 +1,30 @@
+version: 0.2
+
+phases:
+  pre_build:
+    commands:
+      - echo Logging in to Amazon ECR...
+      - aws ecr get-login-password --region us-west-2 | docker login --username AWS --password-stdin 796245059390.dkr.ecr.us-west-2.amazonaws.com
+      - echo Logged in to ECR successfully
+      
+  build:
+    commands:
+      - echo Build started on `date`
+      - echo Building Kohya training container...
+      - docker build -t kohya-training .
+      - echo Tagging container for ECR...
+      - docker tag kohya-training:latest 796245059390.dkr.ecr.us-west-2.amazonaws.com/kohya-training:latest
+      
+  post_build:
+    commands:
+      - echo Build completed on `date`
+      - echo Pushing container to ECR...
+      - docker push 796245059390.dkr.ecr.us-west-2.amazonaws.com/kohya-training:latest
+      - echo Container pushed successfully!
+      
+# Use a larger instance for faster builds
+environment:
+  compute-type: BUILD_GENERAL1_LARGE
+  image: aws/codebuild/amazonlinux2-x86_64-standard:5.0
+  type: LINUX_CONTAINER
+  privileged-mode: true
