@@ -3,10 +3,46 @@ Generate Kohya configuration files for SDXL training
 """
 
 import os
+import re
 from pathlib import Path
+
+def extract_model_name(instance_prompt, dataset_path):
+    """Extract model name from instance prompt or dataset path"""
+    
+    # First try to extract from instance prompt
+    # "a photo of franka person" -> "franka"
+    # "a photo of sinisha style" -> "sinisha"
+    prompt_match = re.search(r'a\s+photo\s+of\s+(\w+)', instance_prompt.lower())
+    if prompt_match:
+        return prompt_match.group(1)
+    
+    # Fallback to dataset path
+    # "training/character/model-franka/dataset" -> "franka"
+    # "training/style/photographer-sinisha/dataset" -> "sinisha"
+    path_str = str(dataset_path).lower()
+    
+    # Look for model-X or photographer-X patterns
+    model_match = re.search(r'(?:model|photographer)-(\w+)', path_str)
+    if model_match:
+        return model_match.group(1)
+    
+    # Look for character names in path segments
+    path_parts = Path(dataset_path).parts
+    for part in reversed(path_parts):
+        if part.lower() not in ['dataset', 'training', 'character', 'style', 'conditioning']:
+            # Clean up the part (remove prefixes)
+            clean_name = re.sub(r'^(?:model|photographer)-', '', part.lower())
+            if clean_name and len(clean_name) > 2:
+                return clean_name
+    
+    # Final fallback
+    return "sdxl"
 
 def create_kohya_config(args, dataset_path, config_path):
     """Create a Kohya TOML config file"""
+    
+    # Extract model name from instance prompt or dataset path
+    model_name = extract_model_name(args.instance_prompt, dataset_path)
     
     # Calculate training steps
     if args.max_train_steps:
@@ -62,7 +98,7 @@ debug_dataset = false
 
 [training_arguments]
 output_dir = "/tmp/lora_models"
-output_name = "sdxl_lora"
+output_name = "{model_name}_lora"
 save_precision = "fp16"
 save_every_n_epochs = 1
 save_every_n_steps = 0
