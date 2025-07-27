@@ -71,14 +71,43 @@ def parse_args():
 
 def prepare_dataset(training_dir, instance_prompt):
     """Prepare dataset directory structure for Kohya"""
-    dataset_dir = Path(training_dir) / "dataset"
+    logger.info(f"Training directory contents: {os.listdir(training_dir)}")
     
-    # Find all images in the training directory
+    # SageMaker mounts S3 data directly to training_dir
+    # Check if images are in root or in a subdirectory
+    dataset_dir = Path(training_dir)
+    
+    # Try to find images in various locations
     image_files = []
-    for ext in ['*.jpg', '*.jpeg', '*.png', '*.webp']:
-        image_files.extend(dataset_dir.glob(ext))
+    search_dirs = [
+        dataset_dir,
+        dataset_dir / "dataset",
+        dataset_dir / "training",
+        dataset_dir / "data"
+    ]
     
-    logger.info(f"Found {len(image_files)} training images")
+    for search_dir in search_dirs:
+        if search_dir.exists():
+            logger.info(f"Searching for images in: {search_dir}")
+            for ext in ['*.jpg', '*.jpeg', '*.png', '*.webp']:
+                found = list(search_dir.glob(ext))
+                if found:
+                    image_files.extend(found)
+                    dataset_dir = search_dir
+                    logger.info(f"Found {len(found)} {ext} files in {search_dir}")
+                    break
+            if image_files:
+                break
+    
+    if not image_files:
+        logger.error(f"No images found in any expected location!")
+        logger.error(f"Searched in: {search_dirs}")
+        # List all files recursively to debug
+        all_files = list(Path(training_dir).rglob("*"))
+        logger.error(f"All files in training_dir: {[str(f) for f in all_files[:20]]}")
+        raise ValueError("No training images found")
+    
+    logger.info(f"Found {len(image_files)} training images in {dataset_dir}")
     
     # Create captions for each image
     for image_file in image_files:
@@ -86,6 +115,7 @@ def prepare_dataset(training_dir, instance_prompt):
         if not caption_file.exists():
             with open(caption_file, 'w') as f:
                 f.write(instance_prompt)
+            logger.info(f"Created caption for {image_file.name}")
     
     return str(dataset_dir)
 
@@ -180,12 +210,29 @@ def setup_dreambooth_regularization(args, training_type, dataset_path):
     return str(reg_dir)
 
 def main():
+    logger.info("=== KOHYA TRAINING WRAPPER STARTED ===")
+    
     args = parse_args()
+    
+    # Debug environment
+    logger.info("Environment variables:")
+    for key, value in os.environ.items():
+        if key.startswith('SM_'):
+            logger.info(f"  {key}={value}")
     
     logger.info("Starting Kohya-based SDXL training")
     logger.info(f"Training directory: {args.training_dir}")
     logger.info(f"Model output directory: {args.model_dir}")
     logger.info(f"Instance prompt: {args.instance_prompt}")
+    
+    # Check if directories exist
+    if not os.path.exists(args.training_dir):
+        logger.error(f"Training directory does not exist: {args.training_dir}")
+        sys.exit(1)
+    
+    if not os.path.exists(args.model_dir):
+        logger.info(f"Creating model directory: {args.model_dir}")
+        os.makedirs(args.model_dir, exist_ok=True)
     
     # Auto-detect training type
     is_character, training_type = detect_training_type(args.instance_prompt, args.training_dir)
