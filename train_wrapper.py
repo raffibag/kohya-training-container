@@ -22,12 +22,18 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 def get_hp(key, default=None, required=False):
-    """Get SageMaker hyperparameter with proper key conversion"""
-    # Convert kebab-case to underscore for env var: instance-prompt -> SM_HP_INSTANCE_PROMPT
-    env_key = f"SM_HP_{key.replace('-', '_').upper()}"
-    val = os.environ.get(env_key, default)
+    """Get SageMaker hyperparameter from hyperparameters.json file"""
+    try:
+        with open("/opt/ml/input/config/hyperparameters.json", "r") as f:
+            hyperparams = json.load(f)
+    except FileNotFoundError:
+        logger.warning("Hyperparameters file not found, using defaults")
+        hyperparams = {}
+    
+    # SageMaker uses kebab-case keys in hyperparameters.json
+    val = hyperparams.get(key, default)
     if required and val is None:
-        raise ValueError(f"Missing required hyperparameter: {key} (env: {env_key})")
+        raise ValueError(f"Missing required hyperparameter: {key}")
     return val
 
 def get_config():
@@ -251,10 +257,26 @@ def main():
     print(f"Script location: {__file__}")
     print(f"Command line args: {sys.argv}")
     print(f"Number of command line args: {len(sys.argv)}")
-    print(f"Environment SM_HP vars:")
+    print(f"=== HYPERPARAMETERS DEBUG ===")
+    try:
+        with open("/opt/ml/input/config/hyperparameters.json", "r") as f:
+            hyperparams = json.load(f)
+        print(f"Hyperparameters file found with {len(hyperparams)} parameters:")
+        for key, val in hyperparams.items():
+            print(f"  {key}={val}")
+    except FileNotFoundError:
+        print("  NO hyperparameters.json file found!")
+    except Exception as e:
+        print(f"  Error reading hyperparameters.json: {e}")
+        
+    print(f"Environment SM_HP vars (legacy check):")
+    hp_found = False
     for key, val in os.environ.items():
         if key.startswith('SM_HP_'):
             print(f"  {key}={val}")
+            hp_found = True
+    if not hp_found:
+        print("  NO SM_HP_* variables found!")
     sys.stdout.flush()
     
     logger.info("=== KOHYA TRAINING WRAPPER STARTED ===")
