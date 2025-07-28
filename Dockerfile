@@ -49,7 +49,7 @@ WORKDIR /opt/ml/code
 
 # Set environment variables
 ENV PYTHONPATH=/kohya:/opt/ml/code
-ENV SAGEMAKER_PROGRAM=debug_train.py
+ENV SAGEMAKER_PROGRAM=train.py
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 ENTRYPOINT ["python", "-m", "sagemaker_training.trainer"]
