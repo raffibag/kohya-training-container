@@ -1,4 +1,4 @@
-FROM pytorch/pytorch:2.4.0-cuda12.4-cudnn9-devel
+FROM pytorch/pytorch:2.1.2-cuda12.1-cudnn8-devel
 
 # Install system dependencies
 RUN apt-get update && apt-get install -y \
@@ -10,19 +10,19 @@ RUN apt-get update && apt-get install -y \
 # Upgrade pip and install wheel
 RUN python -m pip install --upgrade pip setuptools wheel
 
-# PyTorch 2.4.0 and torchvision are already installed in the base image
-# But let's ensure we have the latest compatible versions
-RUN pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
+# PyTorch 2.1.2 and torchvision are already installed in the base image
+# But let's ensure we have the exact compatible versions
+RUN pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
 
 # Clone Kohya's training scripts
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /kohya
 WORKDIR /kohya
 
-# Install Kohya requirements with latest compatible versions for PyTorch 2.4.0
+# Install Kohya requirements with compatible versions for PyTorch 2.1.2
 RUN pip install accelerate
 RUN pip install transformers
 RUN pip install diffusers
-RUN pip install xformers --index-url https://download.pytorch.org/whl/cu124
+RUN pip install xformers --index-url https://download.pytorch.org/whl/cu121
 RUN pip install datasets
 RUN pip install safetensors
 RUN pip install gradio
