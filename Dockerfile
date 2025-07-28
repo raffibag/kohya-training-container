@@ -54,4 +54,5 @@ ENV PYTHONPATH=/kohya:/opt/ml/code
 ENV SAGEMAKER_PROGRAM=train.py
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-ENTRYPOINT ["python", "-m", "sagemaker_training.trainer"]
+# Direct entrypoint to bypass sagemaker-training issues
+ENTRYPOINT ["python", "/opt/ml/code/train.py"]

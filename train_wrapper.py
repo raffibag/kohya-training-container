@@ -363,6 +363,10 @@ def main():
         else:
             logger.info(f"Successfully copied {model_files_copied} model file(s)")
         
+        # Log final model directory contents
+        logger.info(f"=== FINAL MODEL DIRECTORY CONTENTS ===")
+        logger.info(f"Files in model_dir ({args.model_dir}): {os.listdir(args.model_dir)}")
+        
         # Create metadata
         metadata = {
             "model_type": "SDXL LoRA",
