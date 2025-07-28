@@ -12,7 +12,7 @@ RUN python -m pip install --upgrade pip setuptools wheel
 
 # PyTorch 2.4.0 and torchvision are already installed in the base image
 # But let's ensure we have the latest compatible versions
-RUN pip install torch==2.4.0 torchvision --index-url https://download.pytorch.org/whl/cu124
+RUN pip install torch==2.4.0 torchvision==0.19.0 --index-url https://download.pytorch.org/whl/cu124
 
 # Clone Kohya's training scripts
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /kohya
@@ -48,8 +48,8 @@ WORKDIR /opt/ml/code
 
 # Set environment variables
 ENV PYTHONPATH=/kohya:/opt/ml/code
-ENV SAGEMAKER_PROGRAM=train.py
+ENV SAGEMAKER_PROGRAM=train_wrapper.py
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
-# Direct entrypoint to bypass sagemaker-training issues
-ENTRYPOINT ["python", "/opt/ml/code/train_wrapper.py"]
+# Remove direct entrypoint to let SageMaker handle it properly
+ENTRYPOINT []
