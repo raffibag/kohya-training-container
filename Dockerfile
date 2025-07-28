@@ -43,9 +43,6 @@ RUN pip install -e .
 # Copy SageMaker wrapper scripts
 COPY train_wrapper.py /opt/ml/code/train_wrapper.py
 COPY kohya_config.py /opt/ml/code/kohya_config.py
-COPY debug_train.py /opt/ml/code/debug_train.py
-COPY minimal_test.py /opt/ml/code/minimal_test.py
-COPY train_wrapper.py /opt/ml/code/train.py
 
 WORKDIR /opt/ml/code
 
@@ -55,4 +52,4 @@ ENV SAGEMAKER_PROGRAM=train.py
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
 
 # Direct entrypoint to bypass sagemaker-training issues
-ENTRYPOINT ["python", "/opt/ml/code/train.py"]
+ENTRYPOINT ["python", "/opt/ml/code/train_wrapper.py"]

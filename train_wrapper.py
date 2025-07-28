@@ -10,6 +10,7 @@ import json
 import argparse
 import subprocess
 import logging
+import time
 from pathlib import Path
 
 # Add Kohya to path
@@ -232,15 +233,31 @@ def setup_dreambooth_regularization(args, training_type, dataset_path):
     return str(reg_dir)
 
 def main():
+    # Immediate startup confirmation with flush
+    print("=== KOHYA TRAINING WRAPPER STARTED ===")
+    print(f"Python version: {sys.version}")
+    print(f"Script location: {__file__}")
+    sys.stdout.flush()
+    
     logger.info("=== KOHYA TRAINING WRAPPER STARTED ===")
     
     args = parse_args()
     
     # Debug environment
+    print("=== ENVIRONMENT VARIABLES ===")
     logger.info("Environment variables:")
     for key, value in os.environ.items():
         if key.startswith('SM_'):
+            print(f"{key}={value}")
             logger.info(f"  {key}={value}")
+    sys.stdout.flush()
+    
+    # Give CloudWatch time to catch up
+    print("=== STARTUP DELAY FOR CLOUDWATCH ===")
+    for i in range(5):
+        print(f"Startup check {i+1}/5...")
+        sys.stdout.flush()
+        time.sleep(1)
     
     # Ensure model_dir is set
     if not args.model_dir:
