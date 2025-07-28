@@ -162,13 +162,53 @@ def run_kohya_training(config, dataset_path):
     
     logger.info(f"Running command: {' '.join(cmd)}")
     
-    # Run training with real-time output
+    # Run training with full output capture
     try:
         logger.info("=== STARTING KOHYA TRAINING ===")
         logger.info(f"Command: {' '.join(cmd)}")
         
-        # Run with real-time output streaming
-        result = subprocess.run(cmd, check=True)
+        # Run with output capture to see the actual error
+        result = subprocess.run(
+            cmd, 
+            capture_output=True,
+            text=True,
+            check=False  # Don't raise on non-zero exit, we'll handle it
+        )
+        
+        # Log stdout
+        if result.stdout:
+            logger.info("=== KOHYA STDOUT ===")
+            for line in result.stdout.splitlines():
+                logger.info(f"KOHYA: {line}")
+        
+        # Log stderr
+        if result.stderr:
+            logger.error("=== KOHYA STDERR ===")
+            for line in result.stderr.splitlines():
+                logger.error(f"KOHYA ERR: {line}")
+        
+        # Check if it succeeded
+        if result.returncode != 0:
+            logger.error(f"Kohya training failed with return code: {result.returncode}")
+            
+            # Save full error details to file
+            error_details_path = Path(config.model_dir) / "kohya_error_details.txt"
+            error_details_path.parent.mkdir(parents=True, exist_ok=True)
+            with open(error_details_path, "w") as f:
+                f.write(f"Kohya training failed with return code: {result.returncode}\n\n")
+                f.write("=== COMMAND ===\n")
+                f.write(f"{' '.join(cmd)}\n\n")
+                f.write("=== STDOUT ===\n")
+                f.write(result.stdout or "(empty)")
+                f.write("\n\n=== STDERR ===\n")
+                f.write(result.stderr or "(empty)")
+                f.write("\n\n=== CONFIG FILE ===\n")
+                if Path(config_path).exists():
+                    with open(config_path, "r") as cf:
+                        f.write(cf.read())
+            logger.info(f"Saved error details to: {error_details_path}")
+            return False
+        
         logger.info("Training subprocess completed successfully!")
         
         # Validate that model files were created
@@ -186,8 +226,24 @@ def run_kohya_training(config, dataset_path):
             logger.info(f"Files in output dir: {[f.name for f in all_files]}")
         
         return True
-    except subprocess.CalledProcessError as e:
-        logger.error(f"Training failed with exit code {e.returncode}")
+    except Exception as e:
+        logger.error(f"Exception running Kohya training: {type(e).__name__}: {e}")
+        import traceback
+        logger.error("Full traceback:")
+        logger.error(traceback.format_exc())
+        
+        # Save exception details
+        error_details_path = Path(config.model_dir) / "kohya_exception_details.txt"
+        error_details_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(error_details_path, "w") as f:
+            f.write(f"Exception running Kohya training\n")
+            f.write(f"Exception type: {type(e).__name__}\n")
+            f.write(f"Exception message: {e}\n\n")
+            f.write("=== FULL TRACEBACK ===\n")
+            f.write(traceback.format_exc())
+            f.write("\n\n=== COMMAND ===\n")
+            f.write(f"{' '.join(cmd)}\n")
+        logger.info(f"Saved exception details to: {error_details_path}")
         return False
 
 def detect_training_type(instance_prompt, training_dir):
@@ -637,6 +693,15 @@ if __name__ == "__main__":
     except Exception as e:
         logger.error(f"Unhandled exception in main: {e}")
         import traceback
+        
+        # Print to both logger and stdout for visibility
+        print("\n=== UNHANDLED EXCEPTION ===")
+        print(f"Exception type: {type(e).__name__}")
+        print(f"Exception message: {e}")
+        print("\n=== FULL TRACEBACK ===")
+        traceback.print_exc()
+        
+        logger.error("Full traceback:")
         logger.error(traceback.format_exc())
         
         # Try to create error file in model dir
@@ -648,11 +713,16 @@ if __name__ == "__main__":
                 
                 error_file = output_dir / "training_error.txt"
                 with open(error_file, "w") as f:
-                    f.write(f"Unhandled exception: {e}\n")
+                    f.write(f"Unhandled exception: {type(e).__name__}: {e}\n\n")
+                    f.write("=== FULL TRACEBACK ===\n")
                     f.write(traceback.format_exc())
+                    f.write("\n\n=== ENVIRONMENT ===\n")
+                    for key, val in os.environ.items():
+                        if key.startswith('SM_') or key.startswith('PYTHON'):
+                            f.write(f"{key}={val}\n")
                 
                 logger.info(f"Created error file: {error_file}")
-        except:
-            pass
+        except Exception as inner_e:
+            logger.error(f"Failed to create error file: {inner_e}")
         
         cleanup_and_exit(False, config if 'config' in locals() else None)
