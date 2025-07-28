@@ -7,10 +7,10 @@ Supports DreamBooth + LoRA training with SDXL
 import os
 import sys
 import json
-import argparse
 import subprocess
 import logging
 import time
+from datetime import datetime
 from pathlib import Path
 
 # Add Kohya to path
@@ -21,57 +21,69 @@ from kohya_config import create_kohya_config
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
-def parse_args():
-    parser = argparse.ArgumentParser()
+def get_hp(key, default=None, required=False):
+    """Get SageMaker hyperparameter with proper key conversion"""
+    # Convert kebab-case to underscore for env var: instance-prompt -> SM_HP_INSTANCE_PROMPT
+    env_key = f"SM_HP_{key.replace('-', '_').upper()}"
+    val = os.environ.get(env_key, default)
+    if required and val is None:
+        raise ValueError(f"Missing required hyperparameter: {key} (env: {env_key})")
+    return val
+
+def get_config():
+    """Get configuration from environment variables using the cleaner helper"""
     
-    # SageMaker specific
-    parser.add_argument("--model-dir", type=str, default=os.environ.get("SM_MODEL_DIR"))
-    parser.add_argument("--training-dir", type=str, default=os.environ.get("SM_CHANNEL_TRAINING"))
-    parser.add_argument("--output-dir", type=str, default=os.environ.get("SM_OUTPUT_DATA_DIR"))
+    class Config:
+        def __init__(self):
+            # SageMaker specific paths
+            self.model_dir = os.environ.get("SM_MODEL_DIR", "/opt/ml/model")
+            self.training_dir = os.environ.get("SM_CHANNEL_TRAINING", "/opt/ml/input/data/training")
+            self.output_dir = os.environ.get("SM_OUTPUT_DATA_DIR", "/opt/ml/output")
+            
+            # Training configuration from hyperparameters
+            self.pretrained_model_name = get_hp("pretrained-model-name", "stabilityai/stable-diffusion-xl-base-1.0")
+            self.instance_prompt = get_hp("instance-prompt", "a photo of a person", required=True)
+            self.class_prompt = get_hp("class-prompt")
+            self.num_train_epochs = int(get_hp("num-train-epochs", "4"))
+            self.train_batch_size = int(get_hp("train-batch-size", "1"))
+            self.learning_rate = float(get_hp("learning-rate", "1e-4"))
+            self.lr_scheduler = get_hp("lr-scheduler", "cosine_with_restarts")
+            self.lr_warmup_steps = int(get_hp("lr-warmup-steps", "0"))
+            max_steps = int(get_hp("max-train-steps", "0"))
+            self.max_train_steps = max_steps if max_steps > 0 else None
+            self.seed = int(get_hp("seed", "42"))
+            
+            # LoRA specific
+            self.use_lora = get_hp("use-lora", "true").lower() in ["true", "1", "yes"]
+            self.lora_rank = int(get_hp("lora-rank", "32"))
+            self.lora_alpha = int(get_hp("lora-alpha", "32"))
+            self.lora_dropout = float(get_hp("lora-dropout", "0.0"))
+            
+            # Kohya output directory
+            self.kohya_output_dir = get_hp("kohya-output-dir", "/tmp/lora_models")
+            
+            # DreamBooth specific
+            self.prior_loss_weight = float(get_hp("prior-loss-weight", "1.0"))
+            self.with_prior_preservation = get_hp("with-prior-preservation", "false").lower() in ["true", "1", "yes"]
+            self.class_data_dir = get_hp("class-data-dir")
+            self.num_class_images = int(get_hp("num-class-images", "200"))
+            
+            # Optimization
+            self.mixed_precision = get_hp("mixed-precision", "fp16")
+            self.gradient_checkpointing = get_hp("gradient-checkpointing", "true").lower() in ["true", "1", "yes"]
+            self.enable_xformers = get_hp("enable-xformers", "true").lower() in ["true", "1", "yes"]
+            self.optimizer = get_hp("optimizer", "AdamW8bit")
+            self.clip_skip = int(get_hp("clip-skip", "2"))
+            
+            # Advanced
+            self.caption_extension = get_hp("caption-extension", ".txt")
+            self.shuffle_caption = get_hp("shuffle-caption", "false").lower() in ["true", "1", "yes"]
+            self.cache_latents = get_hp("cache-latents", "true").lower() in ["true", "1", "yes"]
+            self.cache_latents_to_disk = get_hp("cache-latents-to-disk", "false").lower() in ["true", "1", "yes"]
+            self.color_aug = get_hp("color-aug", "false").lower() in ["true", "1", "yes"]
+            self.flip_aug = get_hp("flip-aug", "false").lower() in ["true", "1", "yes"]
     
-    # Training configuration
-    parser.add_argument("--pretrained-model-name", type=str, default="stabilityai/stable-diffusion-xl-base-1.0")
-    parser.add_argument("--instance-prompt", type=str, required=True)
-    parser.add_argument("--class-prompt", type=str, default=None)
-    parser.add_argument("--num-train-epochs", type=int, default=4)
-    parser.add_argument("--train-batch-size", type=int, default=1)
-    parser.add_argument("--learning-rate", type=float, default=1e-4)
-    parser.add_argument("--lr-scheduler", type=str, default="cosine_with_restarts")
-    parser.add_argument("--lr-warmup-steps", type=int, default=0)
-    parser.add_argument("--max-train-steps", type=int, default=None)
-    parser.add_argument("--seed", type=int, default=42)
-    
-    # LoRA specific
-    parser.add_argument("--use-lora", action="store_true", default=True)
-    parser.add_argument("--lora-rank", type=int, default=32)
-    parser.add_argument("--lora-alpha", type=int, default=32)
-    parser.add_argument("--lora-dropout", type=float, default=0.0)
-    
-    # Kohya output directory (separate from SageMaker model dir)
-    parser.add_argument("--kohya-output-dir", type=str, default="/tmp/lora_models")
-    
-    # DreamBooth specific (auto-enabled for character training)
-    parser.add_argument("--prior-loss-weight", type=float, default=1.0)
-    parser.add_argument("--with-prior-preservation", action="store_true")
-    parser.add_argument("--class-data-dir", type=str, default=None)
-    parser.add_argument("--num-class-images", type=int, default=200)
-    
-    # Optimization
-    parser.add_argument("--mixed-precision", type=str, default="fp16")
-    parser.add_argument("--gradient-checkpointing", action="store_true", default=True)
-    parser.add_argument("--enable-xformers", action="store_true", default=True)
-    parser.add_argument("--optimizer", type=str, default="AdamW8bit")
-    parser.add_argument("--clip-skip", type=int, default=2)
-    
-    # Advanced
-    parser.add_argument("--caption-extension", type=str, default=".txt")
-    parser.add_argument("--shuffle-caption", action="store_true")
-    parser.add_argument("--cache-latents", action="store_true", default=True)
-    parser.add_argument("--cache-latents-to-disk", action="store_true")
-    parser.add_argument("--color-aug", action="store_true")
-    parser.add_argument("--flip-aug", action="store_true")
-    
-    return parser.parse_args()
+    return Config()
 
 def prepare_dataset(training_dir, instance_prompt):
     """Prepare dataset directory structure for Kohya"""
@@ -123,15 +135,15 @@ def prepare_dataset(training_dir, instance_prompt):
     
     return str(dataset_dir)
 
-def run_kohya_training(args, dataset_path):
+def run_kohya_training(config, dataset_path):
     """Run Kohya's training script with generated config"""
     
     # Generate Kohya config
     config_path = "/tmp/kohya_config.toml"
-    create_kohya_config(args, dataset_path, config_path, args.kohya_output_dir)
+    create_kohya_config(config, dataset_path, config_path, config.kohya_output_dir)
     
     # Determine which script to use
-    if args.use_lora:
+    if config.use_lora:
         script_name = "sdxl_train_network.py"
     else:
         script_name = "sdxl_train.py"
@@ -154,7 +166,7 @@ def run_kohya_training(args, dataset_path):
         logger.info("Training subprocess completed successfully!")
         
         # Validate that model files were created
-        kohya_output_path = Path(args.kohya_output_dir)
+        kohya_output_path = Path(config.kohya_output_dir)
         model_files = list(kohya_output_path.glob("*.safetensors")) + list(kohya_output_path.glob("*.ckpt"))
         
         if model_files:
@@ -200,21 +212,21 @@ def detect_training_type(instance_prompt, training_dir):
     
     return is_character, training_type
 
-def setup_dreambooth_regularization(args, training_type, dataset_path):
+def setup_dreambooth_regularization(config, training_type, dataset_path):
     """Setup regularization images for DreamBooth character training"""
     
     if training_type != "character":
         return None
         
     # Enable DreamBooth with prior preservation for characters
-    args.with_prior_preservation = True
+    config.with_prior_preservation = True
     
     reg_dir = Path("/tmp/regularization_images")
     reg_dir.mkdir(exist_ok=True)
     
     # Extract class name from instance prompt
     # "a photo of john person" -> "person"
-    words = args.instance_prompt.lower().split()
+    words = config.instance_prompt.lower().split()
     class_word = "person"  # default
     
     if "person" in words:
@@ -224,11 +236,11 @@ def setup_dreambooth_regularization(args, training_type, dataset_path):
     elif "woman" in words:
         class_word = "woman"
     
-    args.class_prompt = f"a photo of a {class_word}"
-    args.class_data_dir = str(reg_dir)
+    config.class_prompt = f"a photo of a {class_word}"
+    config.class_data_dir = str(reg_dir)
     
-    logger.info(f"DreamBooth enabled with class prompt: {args.class_prompt}")
-    logger.info(f"Regularization directory: {args.class_data_dir}")
+    logger.info(f"DreamBooth enabled with class prompt: {config.class_prompt}")
+    logger.info(f"Regularization directory: {config.class_data_dir}")
     
     return str(reg_dir)
 
@@ -237,11 +249,17 @@ def main():
     print("=== KOHYA TRAINING WRAPPER STARTED ===")
     print(f"Python version: {sys.version}")
     print(f"Script location: {__file__}")
+    print(f"Command line args: {sys.argv}")
+    print(f"Number of command line args: {len(sys.argv)}")
+    print(f"Environment SM_HP vars:")
+    for key, val in os.environ.items():
+        if key.startswith('SM_HP_'):
+            print(f"  {key}={val}")
     sys.stdout.flush()
     
     logger.info("=== KOHYA TRAINING WRAPPER STARTED ===")
     
-    args = parse_args()
+    config = get_config()  # This will now raise ValueError if instance-prompt is missing
     
     # Debug environment
     print("=== ENVIRONMENT VARIABLES ===")
@@ -260,57 +278,106 @@ def main():
         time.sleep(1)
     
     # Ensure model_dir is set
-    if not args.model_dir:
+    if not config.model_dir:
         logger.error("Missing model_dir (SM_MODEL_DIR is not set). Cannot write model output.")
         sys.exit(1)
     
     logger.info("Starting Kohya-based SDXL training")
-    logger.info(f"Training directory: {args.training_dir}")
-    logger.info(f"Model output directory: {args.model_dir}")
-    logger.info(f"Instance prompt: {args.instance_prompt}")
+    logger.info(f"Training directory: {config.training_dir}")
+    logger.info(f"Model output directory: {config.model_dir}")
+    logger.info(f"Instance prompt: {config.instance_prompt}")
     
     # Check if directories exist
-    if not os.path.exists(args.training_dir):
-        logger.error(f"Training directory does not exist: {args.training_dir}")
+    if not os.path.exists(config.training_dir):
+        logger.error(f"Training directory does not exist: {config.training_dir}")
         sys.exit(1)
     
-    if not os.path.exists(args.model_dir):
-        logger.info(f"Creating model directory: {args.model_dir}")
-        os.makedirs(args.model_dir, exist_ok=True)
+    if not os.path.exists(config.model_dir):
+        logger.info(f"Creating model directory: {config.model_dir}")
+        os.makedirs(config.model_dir, exist_ok=True)
     
     # Auto-detect training type
-    is_character, training_type = detect_training_type(args.instance_prompt, args.training_dir)
+    is_character, training_type = detect_training_type(config.instance_prompt, config.training_dir)
     
     # Prepare dataset
-    dataset_path = prepare_dataset(args.training_dir, args.instance_prompt)
+    dataset_path = prepare_dataset(config.training_dir, config.instance_prompt)
     
     # Setup DreamBooth for character training
-    reg_dir = setup_dreambooth_regularization(args, training_type, dataset_path)
+    reg_dir = setup_dreambooth_regularization(config, training_type, dataset_path)
     
     # Adjust hyperparameters based on type
     if is_character:
         # Character training: Lower LR, more epochs, DreamBooth
-        args.learning_rate = max(args.learning_rate * 0.5, 5e-5)  # Lower LR for faces
-        args.num_train_epochs = max(args.num_train_epochs, 6)     # More epochs
-        args.lora_rank = max(args.lora_rank, 64)                  # Higher rank for details
+        config.learning_rate = max(config.learning_rate * 0.5, 5e-5)  # Lower LR for faces
+        config.num_train_epochs = max(config.num_train_epochs, 6)     # More epochs
+        config.lora_rank = max(config.lora_rank, 64)                  # Higher rank for details
         logger.info("Optimized for character training")
     else:
         # Style training: Standard settings, no DreamBooth
-        args.with_prior_preservation = False
+        config.with_prior_preservation = False
         logger.info("Optimized for style training")
     
     # Run training
-    success = run_kohya_training(args, dataset_path)
+    success = run_kohya_training(config, dataset_path)
+    
+    # CRITICAL: ALWAYS create debug info in /opt/ml/model regardless of training outcome
+    output_dir = Path(config.model_dir)
+    output_dir.mkdir(parents=True, exist_ok=True)
+    
+    # First, let's see what files exist in /tmp ALWAYS
+    logger.info("=== MANDATORY DEBUG: CHECKING ALL LOCATIONS FOR FILES ===")
+    tmp_files = list(Path("/tmp").rglob("*.safetensors"))
+    tmp_files.extend(list(Path("/tmp").rglob("*.ckpt")))
+    tmp_files.extend(list(Path("/tmp").rglob("*.pt")))
+    
+    # Create comprehensive debug file ALWAYS (this ensures S3 upload happens)
+    debug_file = output_dir / "training_debug.txt"
+    with open(debug_file, "w") as f:
+        f.write("=== KOHYA TRAINING DEBUG REPORT ===\n")
+        f.write(f"Training script ran successfully: {success}\n")
+        f.write(f"Timestamp: {datetime.now().isoformat()}\n")
+        f.write(f"Working directory: {os.getcwd()}\n")
+        f.write(f"Model directory: {config.model_dir}\n")
+        f.write(f"Training directory: {config.training_dir}\n")
+        f.write(f"Kohya output directory: {config.kohya_output_dir}\n")
+        f.write(f"Instance prompt: {config.instance_prompt}\n")
+        f.write(f"\nFiles found in /tmp: {len(tmp_files)}\n")
+        for f_tmp in tmp_files:
+            f.write(f"  - {f_tmp} ({f_tmp.stat().st_size} bytes)\n")
+        
+        # Check kohya output directory
+        lora_output_dir = Path(config.kohya_output_dir)
+        if lora_output_dir.exists():
+            kohya_files = list(lora_output_dir.rglob("*"))
+            f.write(f"\nFiles in Kohya output dir ({lora_output_dir}): {len(kohya_files)}\n")
+            for kf in kohya_files:
+                if kf.is_file():
+                    f.write(f"  - {kf} ({kf.stat().st_size} bytes)\n")
+        else:
+            f.write(f"\nKohya output directory {lora_output_dir} does not exist\n")
+        
+        # Log environment variables
+        f.write(f"\nEnvironment variables:\n")
+        for key, value in os.environ.items():
+            if key.startswith('SM_'):
+                f.write(f"  {key}={value}\n")
+        
+        f.write(f"\nArguments: {vars(config)}\n")
+    
+    # Ensure proper permissions on debug file
+    import stat
+    os.chmod(debug_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+    logger.info(f"✅ ALWAYS created debug file: {debug_file}")
     
     if success:
         logger.info("Training completed successfully!")
         
         # Copy models to SageMaker output directory
-        output_dir = Path(args.model_dir)
+        output_dir = Path(config.model_dir)
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Find and copy LoRA files from Kohya output
-        lora_output_dir = Path(args.kohya_output_dir)
+        lora_output_dir = Path(config.kohya_output_dir)
         
         # First, let's see what files exist in /tmp
         logger.info("=== CHECKING /tmp FOR ANY OUTPUT FILES ===")
@@ -319,7 +386,7 @@ def main():
         tmp_files.extend(list(Path("/tmp").rglob("*.pt")))
         logger.info(f"Found {len(tmp_files)} model files in /tmp:")
         for f in tmp_files:
-            logger.info(f"  - {f}")
+            logger.info(f"  - {f} ({f.stat().st_size} bytes)")
         
         # Also check the current working directory
         cwd_files = list(Path(".").rglob("*.safetensors"))
@@ -327,7 +394,7 @@ def main():
         if cwd_files:
             logger.info(f"Found {len(cwd_files)} model files in current dir:")
             for f in cwd_files:
-                logger.info(f"  - {f}")
+                logger.info(f"  - {f} ({f.stat().st_size} bytes)")
         
         # Check if output directory exists
         if not lora_output_dir.exists():
@@ -341,19 +408,28 @@ def main():
         
         # Copy all model files
         import shutil
+        import stat
         model_files_copied = 0
+        copied_files = []
+        
         for model_file in lora_output_dir.rglob("*.safetensors"):
             dest_file = output_dir / model_file.name
             shutil.copy2(model_file, dest_file)
-            logger.info(f"Copied {model_file.name} to {dest_file}")
+            # Ensure proper permissions
+            os.chmod(dest_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            logger.info(f"Copied {model_file.name} to {dest_file} ({dest_file.stat().st_size} bytes)")
             model_files_copied += 1
+            copied_files.append(dest_file)
             
         # Also copy any .ckpt files
         for model_file in lora_output_dir.rglob("*.ckpt"):
             dest_file = output_dir / model_file.name
             shutil.copy2(model_file, dest_file)
-            logger.info(f"Copied {model_file.name} to {dest_file}")
+            # Ensure proper permissions
+            os.chmod(dest_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+            logger.info(f"Copied {model_file.name} to {dest_file} ({dest_file.stat().st_size} bytes)")
             model_files_copied += 1
+            copied_files.append(dest_file)
             
         if model_files_copied == 0:
             logger.error("No model files found in expected location!")
@@ -361,10 +437,14 @@ def main():
             
             # Fallback: copy ANY model files found in /tmp
             for tmp_file in tmp_files:
-                dest_file = output_dir / tmp_file.name
-                shutil.copy2(tmp_file, dest_file)
-                logger.info(f"Fallback: Copied {tmp_file} to {dest_file}")
-                model_files_copied += 1
+                if tmp_file.stat().st_size > 1000:  # Only copy files > 1KB
+                    dest_file = output_dir / tmp_file.name
+                    shutil.copy2(tmp_file, dest_file)
+                    # Ensure proper permissions
+                    os.chmod(dest_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+                    logger.info(f"Fallback: Copied {tmp_file} to {dest_file} ({dest_file.stat().st_size} bytes)")
+                    model_files_copied += 1
+                    copied_files.append(dest_file)
             
             if model_files_copied == 0:
                 logger.error("No model files found anywhere!")
@@ -376,30 +456,181 @@ def main():
                     f.write(f"Searched in: {lora_output_dir}\n")
                     f.write(f"Also searched: /tmp\n")
                     f.write(f"Working directory: {os.getcwd()}\n")
+                    f.write(f"Training completed: {success}\n")
+                    f.write(f"Args: {vars(config)}\n")
+                # Ensure proper permissions
+                os.chmod(debug_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
                 logger.info(f"Created debug file: {debug_file}")
+                copied_files.append(debug_file)
         else:
             logger.info(f"Successfully copied {model_files_copied} model file(s)")
-        
-        # Log final model directory contents
-        logger.info(f"=== FINAL MODEL DIRECTORY CONTENTS ===")
-        logger.info(f"Files in model_dir ({args.model_dir}): {os.listdir(args.model_dir)}")
         
         # Create metadata
         metadata = {
             "model_type": "SDXL LoRA",
             "training_method": "Kohya DreamBooth + LoRA",
-            "instance_prompt": args.instance_prompt,
-            "lora_rank": args.lora_rank,
-            "lora_alpha": args.lora_alpha,
-            "training_steps": args.max_train_steps or (args.num_train_epochs * 100),  # estimate
-            "base_model": args.pretrained_model_name
+            "instance_prompt": config.instance_prompt,
+            "lora_rank": config.lora_rank,
+            "lora_alpha": config.lora_alpha,
+            "training_steps": config.max_train_steps or (config.num_train_epochs * 100),  # estimate
+            "base_model": config.pretrained_model_name,
+            "files_copied": [str(f.name) for f in copied_files],
+            "total_files": len(copied_files)
         }
         
-        with open(output_dir / "metadata.json", "w") as f:
+        metadata_file = output_dir / "metadata.json"
+        with open(metadata_file, "w") as f:
             json.dump(metadata, f, indent=2)
+        # Ensure proper permissions
+        os.chmod(metadata_file, stat.S_IRUSR | stat.S_IWUSR | stat.S_IRGRP | stat.S_IROTH)
+        
+        # CRITICAL: Validate /opt/ml/model contents before finishing
+        logger.info("=== FINAL VALIDATION OF /opt/ml/model ===")
+        final_files = list(output_dir.glob("*"))
+        logger.info(f"Final file count in {output_dir}: {len(final_files)}")
+        
+        total_size = 0
+        for f in final_files:
+            if f.is_file():
+                size = f.stat().st_size
+                total_size += size
+                logger.info(f"  ✓ {f.name}: {size} bytes, permissions: {oct(f.stat().st_mode)}")
+        
+        logger.info(f"Total size of all files in /opt/ml/model: {total_size} bytes")
+        
+        if total_size == 0:
+            logger.error("❌ CRITICAL: /opt/ml/model is empty! SageMaker will not upload anything to S3!")
+            return False
+        else:
+            logger.info(f"✅ SUCCESS: /opt/ml/model contains {len(final_files)} files ({total_size} bytes total)")
+        
+        # Force filesystem sync
+        logger.info("Forcing filesystem sync...")
+        os.sync()
+        
+        return True
     else:
         logger.error("Training failed!")
+        # Even on failure, create debug info in /opt/ml/model
+        output_dir = Path(config.model_dir)
+        output_dir.mkdir(parents=True, exist_ok=True)
+        
+        failure_file = output_dir / "training_failure.txt"
+        with open(failure_file, "w") as f:
+            f.write("Training failed\n")
+            f.write(f"Args: {vars(config)}\n")
+            f.write(f"Working directory: {os.getcwd()}\n")
+            f.write("Check CloudWatch logs for details\n")
+        
+        # Force filesystem sync before exit
+        logger.info("Forcing filesystem sync after failure...")
+        os.sync()
+        time.sleep(2)
+        
+        return False
+
+def cleanup_and_exit(success, config):
+    """Proper cleanup and exit with SageMaker synchronization"""
+    import time
+    
+    logger.info("=== FINAL CLEANUP AND SYNCHRONIZATION ===")
+    
+    # CRITICAL: Final comprehensive model directory listing
+    if hasattr(config, 'model_dir') and config.model_dir:
+        model_dir = Path(config.model_dir)
+        if model_dir.exists():
+            files = list(model_dir.glob("*"))
+            logger.info(f"Final model directory contains {len(files)} files:")
+            
+            # Print to both logger AND stdout for absolute visibility
+            print("=== Final model directory listing ===")
+            total_size = 0
+            for f in files:
+                if f.is_file():
+                    size = f.stat().st_size
+                    total_size += size
+                    logger.info(f"  - {f.name}: {size} bytes, permissions: {oct(f.stat().st_mode)}")
+                    print(f"  - {f.name}: {size} bytes")
+                else:
+                    logger.info(f"  - {f.name}: <directory>")
+                    print(f"  - {f.name}: <directory>")
+            
+            logger.info(f"✅ TOTAL SIZE IN /opt/ml/model: {total_size} bytes")
+            print(f"✅ TOTAL SIZE IN /opt/ml/model: {total_size} bytes")
+            
+            if total_size == 0:
+                logger.error("❌ CRITICAL: /opt/ml/model is empty! No S3 upload will occur!")
+                print("❌ CRITICAL: /opt/ml/model is empty! No S3 upload will occur!")
+        else:
+            logger.error(f"❌ Model directory {model_dir} does not exist!")
+            print(f"❌ Model directory {model_dir} does not exist!")
+    
+    # Also check for any other common model locations as fallback
+    other_locations = ["/tmp", "/opt/ml/code", "/kohya"]
+    for location in other_locations:
+        location_path = Path(location)
+        if location_path.exists():
+            model_files = []
+            model_files.extend(list(location_path.rglob("*.safetensors")))
+            model_files.extend(list(location_path.rglob("*.ckpt")))
+            model_files.extend(list(location_path.rglob("*.pt")))
+            if model_files:
+                logger.info(f"Model files found in {location}: {len(model_files)}")
+                print(f"Model files found in {location}: {len(model_files)}")
+                for mf in model_files[:5]:  # Show first 5
+                    logger.info(f"  - {mf}: {mf.stat().st_size} bytes")
+                    print(f"  - {mf}: {mf.stat().st_size} bytes")
+    
+    # Force all pending writes to disk
+    logger.info("Performing final filesystem sync...")
+    os.sync()
+    
+    # Flush all log handlers
+    logger.info("Flushing all log handlers...")
+    for handler in logging.getLogger().handlers:
+        handler.flush()
+    
+    # Give SageMaker time to process logs and sync files
+    logger.info("Final wait to allow SageMaker to flush logs and sync model directory...")
+    print("Final wait to allow SageMaker to flush logs and sync model directory...")
+    sys.stdout.flush()
+    sys.stderr.flush()
+    
+    # Critical: Wait for SageMaker to sync /opt/ml/model to S3
+    time.sleep(15)  # Increased from 10 to 15 seconds
+    
+    if success:
+        logger.info("✅ Training completed successfully - exiting with code 0")
+        print("✅ Training completed successfully - exiting with code 0")
+        sys.exit(0)
+    else:
+        logger.error("❌ Training failed - exiting with code 1")
+        print("❌ Training failed - exiting with code 1")
         sys.exit(1)
 
 if __name__ == "__main__":
-    main()
+    try:
+        result = main()
+        cleanup_and_exit(result, get_config())
+    except Exception as e:
+        logger.error(f"Unhandled exception in main: {e}")
+        import traceback
+        logger.error(traceback.format_exc())
+        
+        # Try to create error file in model dir
+        try:
+            config = get_config()
+            if hasattr(config, 'model_dir') and config.model_dir:
+                output_dir = Path(config.model_dir)
+                output_dir.mkdir(parents=True, exist_ok=True)
+                
+                error_file = output_dir / "training_error.txt"
+                with open(error_file, "w") as f:
+                    f.write(f"Unhandled exception: {e}\n")
+                    f.write(traceback.format_exc())
+                
+                logger.info(f"Created error file: {error_file}")
+        except:
+            pass
+        
+        cleanup_and_exit(False, config if 'config' in locals() else None)
