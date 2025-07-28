@@ -1,6 +1,6 @@
 #!/usr/bin/env python
 """
-Debug script to test SageMaker environment and file locations
+Debug script to test SageMaker environment and run Kohya training with full logging
 """
 import os
 import sys
@@ -8,6 +8,57 @@ import json
 import boto3
 from pathlib import Path
 from datetime import datetime
+
+def run_full_training_debug():
+    """Run the actual training with full debug output"""
+    import subprocess
+    import logging
+    
+    # Set up logging to capture everything
+    logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+    logger = logging.getLogger(__name__)
+    
+    logger.info("=== STARTING FULL TRAINING DEBUG ===")
+    
+    # Import and run the actual training
+    sys.path.insert(0, '/opt/ml/code')
+    
+    try:
+        # Run the actual training wrapper with debug args
+        training_args = [
+            '--instance-prompt', 'a photo of franka person',
+            '--num-train-epochs', '2',  # Short test
+            '--train-batch-size', '1',
+            '--learning-rate', '1e-4'
+        ]
+        
+        cmd = ['python', '/opt/ml/code/train_wrapper.py'] + training_args
+        logger.info(f"Running command: {' '.join(cmd)}")
+        
+        # Run with full output capture
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=300)  # 5 min timeout
+        
+        logger.info(f"Command exit code: {result.returncode}")
+        logger.info("=== TRAINING STDOUT ===")
+        logger.info(result.stdout)
+        
+        if result.stderr:
+            logger.error("=== TRAINING STDERR ===")
+            logger.error(result.stderr)
+        
+        return {
+            "success": result.returncode == 0,
+            "exit_code": result.returncode,
+            "stdout": result.stdout,
+            "stderr": result.stderr
+        }
+        
+    except Exception as e:
+        logger.error(f"Training execution failed: {str(e)}")
+        return {
+            "success": False,
+            "error": str(e)
+        }
 
 def main():
     # Create debug output
@@ -139,6 +190,11 @@ def main():
     debug_info["output_attempts"] = output_attempts
     debug_info["writable_directories"] = writable_dirs
     
+    # Run the actual training and capture its output
+    print("=== RUNNING ACTUAL TRAINING ===")
+    training_result = run_full_training_debug()
+    debug_info["training_result"] = training_result
+    
     # Update debug file with results
     with open(debug_file, "w") as f:
         json.dump(debug_info, f, indent=2)
@@ -146,6 +202,9 @@ def main():
     print("=== OUTPUT TEST RESULTS ===")
     print(json.dumps(output_attempts, indent=2))
     print(f"Writable directories: {writable_dirs}")
+    
+    print("=== TRAINING RESULTS ===")
+    print(json.dumps(training_result, indent=2))
     
 if __name__ == "__main__":
     main()

@@ -41,9 +41,11 @@ RUN pip install sagemaker-training
 RUN pip install -e .
 
 # Copy SageMaker wrapper scripts
-COPY train_wrapper.py /opt/ml/code/train.py
+COPY train_wrapper.py /opt/ml/code/train_wrapper.py
 COPY kohya_config.py /opt/ml/code/kohya_config.py
 COPY debug_train.py /opt/ml/code/debug_train.py
+COPY minimal_test.py /opt/ml/code/minimal_test.py
+COPY train_wrapper.py /opt/ml/code/train.py
 
 WORKDIR /opt/ml/code
 

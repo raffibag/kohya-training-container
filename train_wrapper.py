@@ -46,6 +46,9 @@ def parse_args():
     parser.add_argument("--lora-alpha", type=int, default=32)
     parser.add_argument("--lora-dropout", type=float, default=0.0)
     
+    # Kohya output directory (separate from SageMaker model dir)
+    parser.add_argument("--kohya-output-dir", type=str, default="/tmp/lora_models")
+    
     # DreamBooth specific (auto-enabled for character training)
     parser.add_argument("--prior-loss-weight", type=float, default=1.0)
     parser.add_argument("--with-prior-preservation", action="store_true")
@@ -124,7 +127,7 @@ def run_kohya_training(args, dataset_path):
     
     # Generate Kohya config
     config_path = "/tmp/kohya_config.toml"
-    create_kohya_config(args, dataset_path, config_path)
+    create_kohya_config(args, dataset_path, config_path, args.kohya_output_dir)
     
     # Determine which script to use
     if args.use_lora:
@@ -140,23 +143,32 @@ def run_kohya_training(args, dataset_path):
     
     logger.info(f"Running command: {' '.join(cmd)}")
     
-    # Run training
+    # Run training with real-time output
     try:
         logger.info("=== STARTING KOHYA TRAINING ===")
-        result = subprocess.run(cmd, check=True, capture_output=True, text=True)
-        logger.info("=== KOHYA TRAINING OUTPUT ===")
-        logger.info(result.stdout)
-        if result.stderr:
-            logger.error("=== KOHYA TRAINING ERRORS ===")
-            logger.error(result.stderr)
-        logger.info("Training completed successfully!")
+        logger.info(f"Command: {' '.join(cmd)}")
+        
+        # Run with real-time output streaming
+        result = subprocess.run(cmd, check=True)
+        logger.info("Training subprocess completed successfully!")
+        
+        # Validate that model files were created
+        kohya_output_path = Path(args.kohya_output_dir)
+        model_files = list(kohya_output_path.glob("*.safetensors")) + list(kohya_output_path.glob("*.ckpt"))
+        
+        if model_files:
+            logger.info(f"✓ Found {len(model_files)} model files in {kohya_output_path}")
+            for f in model_files:
+                logger.info(f"  - {f.name} ({f.stat().st_size} bytes)")
+        else:
+            logger.warning(f"⚠ No model files found in {kohya_output_path}")
+            # List what files DO exist
+            all_files = list(kohya_output_path.glob("*")) if kohya_output_path.exists() else []
+            logger.info(f"Files in output dir: {[f.name for f in all_files]}")
+        
         return True
     except subprocess.CalledProcessError as e:
         logger.error(f"Training failed with exit code {e.returncode}")
-        if e.stdout:
-            logger.error(f"STDOUT: {e.stdout}")
-        if e.stderr:
-            logger.error(f"STDERR: {e.stderr}")
         return False
 
 def detect_training_type(instance_prompt, training_dir):
@@ -230,6 +242,11 @@ def main():
         if key.startswith('SM_'):
             logger.info(f"  {key}={value}")
     
+    # Ensure model_dir is set
+    if not args.model_dir:
+        logger.error("Missing model_dir (SM_MODEL_DIR is not set). Cannot write model output.")
+        sys.exit(1)
+    
     logger.info("Starting Kohya-based SDXL training")
     logger.info(f"Training directory: {args.training_dir}")
     logger.info(f"Model output directory: {args.model_dir}")
@@ -276,7 +293,7 @@ def main():
         output_dir.mkdir(parents=True, exist_ok=True)
         
         # Find and copy LoRA files from Kohya output
-        lora_output_dir = Path("/tmp/lora_models")
+        lora_output_dir = Path(args.kohya_output_dir)
         
         # First, let's see what files exist in /tmp
         logger.info("=== CHECKING /tmp FOR ANY OUTPUT FILES ===")

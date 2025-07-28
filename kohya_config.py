@@ -38,11 +38,14 @@ def extract_model_name(instance_prompt, dataset_path):
     # Final fallback
     return "sdxl"
 
-def create_kohya_config(args, dataset_path, config_path):
+def create_kohya_config(args, dataset_path, config_path, output_dir=None):
     """Create a Kohya TOML config file"""
     
     # Extract model name from instance prompt or dataset path
     model_name = extract_model_name(args.instance_prompt, dataset_path)
+    
+    # Use provided output_dir or fallback to kohya_output_dir
+    kohya_output_dir = output_dir or getattr(args, 'kohya_output_dir', '/tmp/lora_models')
     
     # Calculate training steps
     if args.max_train_steps:
@@ -97,7 +100,7 @@ random_crop = false
 debug_dataset = false
 
 [training_arguments]
-output_dir = "/tmp/lora_models"
+output_dir = "{kohya_output_dir}"
 output_name = "{model_name}_lora"
 save_precision = "fp16"
 save_every_n_epochs = 1
