@@ -27,6 +27,7 @@ RUN pip install datasets
 RUN pip install safetensors
 RUN pip install opencv-python-headless
 RUN pip install toml
+RUN pip install imagesize
 RUN pip install gradio
 RUN pip install altair
 RUN pip install easygui
