@@ -187,26 +187,26 @@ def run_kohya_training(config, dataset_path):
             for line in result.stderr.splitlines():
                 logger.error(f"KOHYA ERR: {line}")
         
+        # Always save training logs for debugging
+        logs_path = Path(config.model_dir) / "kohya_training_logs.txt"
+        logs_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(logs_path, "w") as f:
+            f.write(f"Kohya training completed with return code: {result.returncode}\n\n")
+            f.write("=== COMMAND ===\n")
+            f.write(f"{' '.join(cmd)}\n\n")
+            f.write("=== STDOUT ===\n")
+            f.write(result.stdout or "(empty)")
+            f.write("\n\n=== STDERR ===\n")
+            f.write(result.stderr or "(empty)")
+            f.write("\n\n=== CONFIG FILE ===\n")
+            if Path(config_path).exists():
+                with open(config_path, "r") as cf:
+                    f.write(cf.read())
+        logger.info(f"Saved training logs to: {logs_path}")
+        
         # Check if it succeeded
         if result.returncode != 0:
             logger.error(f"Kohya training failed with return code: {result.returncode}")
-            
-            # Save full error details to file
-            error_details_path = Path(config.model_dir) / "kohya_error_details.txt"
-            error_details_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(error_details_path, "w") as f:
-                f.write(f"Kohya training failed with return code: {result.returncode}\n\n")
-                f.write("=== COMMAND ===\n")
-                f.write(f"{' '.join(cmd)}\n\n")
-                f.write("=== STDOUT ===\n")
-                f.write(result.stdout or "(empty)")
-                f.write("\n\n=== STDERR ===\n")
-                f.write(result.stderr or "(empty)")
-                f.write("\n\n=== CONFIG FILE ===\n")
-                if Path(config_path).exists():
-                    with open(config_path, "r") as cf:
-                        f.write(cf.read())
-            logger.info(f"Saved error details to: {error_details_path}")
             return False
         
         logger.info("Training subprocess completed successfully!")
