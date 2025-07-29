@@ -317,14 +317,14 @@ def detect_training_type(instance_prompt, training_dir):
     
     return is_character, training_type
 
-def calculate_optimal_repeats(num_images, training_type, epochs=6, target_steps_range=(800, 1200)):
+def calculate_optimal_repeats(num_images, training_type, epochs=8, target_steps_range=(1200, 2000)):
     """Calculate optimal repeat count based on training parameters"""
     
-    # Target steps by training type
+    # Target steps by training type - optimized for EXCELLENT quality
     type_targets = {
-        'character': 1000,  # Need good identity learning
-        'style': 800,       # Less repetition to avoid overfitting style quirks  
-        'concept': 1200     # Abstract concepts need more exposure
+        'character': 1500,  # Higher for excellent identity learning and detail retention
+        'style': 1200,     # More steps for complex style understanding  
+        'concept': 1800     # Abstract concepts need extensive exposure for excellence
     }
     
     target_steps = type_targets.get(training_type, 1000)
@@ -332,19 +332,19 @@ def calculate_optimal_repeats(num_images, training_type, epochs=6, target_steps_
     # Calculate base repeats
     base_repeats = target_steps // (num_images * epochs)
     
-    # Apply training type specific adjustments
+    # Apply training type specific adjustments - ranges for EXCELLENT quality
     if training_type == "character":
-        # Characters need consistent identity learning
-        min_repeats, max_repeats = 8, 25
+        # Characters need excellent identity learning with fine details
+        min_repeats, max_repeats = 12, 35
     elif training_type == "style":
-        # Styles should avoid overfitting to specific compositions
-        min_repeats, max_repeats = 4, 15
+        # Styles need deep understanding of aesthetic patterns
+        min_repeats, max_repeats = 8, 25
     elif training_type == "concept":
-        # Concepts need more repetition to learn abstract features
-        min_repeats, max_repeats = 10, 30
+        # Concepts need extensive exposure for excellent abstract learning
+        min_repeats, max_repeats = 15, 40
     else:
-        # Default fallback
-        min_repeats, max_repeats = 8, 20
+        # Default fallback for excellent quality
+        min_repeats, max_repeats = 12, 30
     
     # Adjust based on dataset size
     if num_images <= 5:
@@ -473,17 +473,26 @@ def main():
     # Setup DreamBooth for character training
     reg_dir = setup_dreambooth_regularization(config, training_type, dataset_path)
     
-    # Adjust hyperparameters based on type
-    if is_character:
-        # Character training: Lower LR, more epochs, DreamBooth
-        config.learning_rate = max(config.learning_rate * 0.5, 5e-5)  # Lower LR for faces
-        config.num_train_epochs = max(config.num_train_epochs, 6)     # More epochs
-        config.lora_rank = max(config.lora_rank, 64)                  # Higher rank for details
-        logger.info("Optimized for character training")
-    else:
-        # Style training: Standard settings, no DreamBooth
+    # Adjust hyperparameters based on type for EXCELLENT quality
+    if training_type == "character":
+        # Character training: Lower LR, more epochs, higher rank
+        config.learning_rate = max(config.learning_rate * 0.5, 4e-5)  # Even lower LR for excellent detail
+        config.num_train_epochs = max(config.num_train_epochs, 8)     # More epochs for excellence
+        config.lora_rank = max(config.lora_rank, 128)                 # Higher rank for fine details
+        logger.info("Optimized for EXCELLENT character training")
+    elif training_type == "style":
+        # Style training: Balanced settings for style excellence
+        config.learning_rate = max(config.learning_rate * 0.7, 6e-5)  # Moderate LR reduction
+        config.num_train_epochs = max(config.num_train_epochs, 7)     # Extra epochs for style nuance
+        config.lora_rank = max(config.lora_rank, 64)                  # Good rank for style details
         config.with_prior_preservation = False
-        logger.info("Optimized for style training")
+        logger.info("Optimized for EXCELLENT style training")
+    else:
+        # Concept training: High settings for concept mastery
+        config.learning_rate = max(config.learning_rate * 0.6, 5e-5)  # Lower LR for concept stability
+        config.num_train_epochs = max(config.num_train_epochs, 9)     # Many epochs for concepts
+        config.lora_rank = max(config.lora_rank, 96)                  # High rank for concept complexity
+        logger.info("Optimized for EXCELLENT concept training")
     
     # Run training
     success = run_kohya_training(config, dataset_path)
