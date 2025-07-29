@@ -97,15 +97,15 @@ def prepare_dataset(training_dir, instance_prompt):
     
     # SageMaker mounts S3 data directly to training_dir
     # Check if images are in root or in a subdirectory
-    dataset_dir = Path(training_dir)
+    source_dir = Path(training_dir)
     
     # Try to find images in various locations
     image_files = []
     search_dirs = [
-        dataset_dir,
-        dataset_dir / "dataset",
-        dataset_dir / "training",
-        dataset_dir / "data"
+        source_dir,
+        source_dir / "dataset",
+        source_dir / "training",
+        source_dir / "data"
     ]
     
     for search_dir in search_dirs:
@@ -115,7 +115,7 @@ def prepare_dataset(training_dir, instance_prompt):
                 found = list(search_dir.glob(ext))
                 if found:
                     image_files.extend(found)
-                    dataset_dir = search_dir
+                    source_dir = search_dir
                     logger.info(f"Found {len(found)} {ext} files in {search_dir}")
                     break
             if image_files:
@@ -129,17 +129,40 @@ def prepare_dataset(training_dir, instance_prompt):
         logger.error(f"All files in training_dir: {[str(f) for f in all_files[:20]]}")
         raise ValueError("No training images found")
     
-    logger.info(f"Found {len(image_files)} training images in {dataset_dir}")
+    logger.info(f"Found {len(image_files)} training images in {source_dir}")
     
-    # Create captions for each image
+    # Create Kohya-compatible directory structure
+    # Kohya expects: parent_dir/subfolder/images
+    kohya_parent_dir = Path("/tmp/kohya_dataset")  
+    kohya_images_dir = kohya_parent_dir / "train_images"
+    kohya_images_dir.mkdir(parents=True, exist_ok=True)
+    
+    logger.info(f"Creating Kohya dataset structure at: {kohya_parent_dir}")
+    logger.info(f"Images will be in: {kohya_images_dir}")
+    
+    # Copy images and create captions in the Kohya structure
+    import shutil
     for image_file in image_files:
-        caption_file = image_file.with_suffix('.txt')
-        if not caption_file.exists():
-            with open(caption_file, 'w') as f:
+        # Copy image
+        dest_image = kohya_images_dir / image_file.name
+        shutil.copy2(image_file, dest_image)
+        
+        # Create or copy caption
+        source_caption = image_file.with_suffix('.txt')
+        dest_caption = dest_image.with_suffix('.txt')
+        
+        if source_caption.exists():
+            shutil.copy2(source_caption, dest_caption)
+            logger.info(f"Copied caption for {image_file.name}")
+        else:
+            with open(dest_caption, 'w') as f:
                 f.write(instance_prompt)
             logger.info(f"Created caption for {image_file.name}")
     
-    return str(dataset_dir)
+    logger.info(f"Prepared {len(image_files)} images in Kohya format")
+    
+    # Return the parent directory (what Kohya expects as train_data_dir)
+    return str(kohya_parent_dir)
 
 def run_kohya_training(config, dataset_path):
     """Run Kohya's training script with generated config"""
