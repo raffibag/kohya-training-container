@@ -123,14 +123,9 @@ log_with = "tensorboard"
 log_prefix = "sdxl_lora"
 
 [sample_prompt_arguments]
-sample_every_n_steps = 100
+sample_every_n_steps = 0
 sample_every_n_epochs = 0
 sample_sampler = "euler_a"
-sample_prompts = [
-    "{args.instance_prompt}",
-    "{args.instance_prompt}, high quality, detailed",
-    "{args.instance_prompt}, portrait, studio lighting"
-]
 
 [dreambooth_arguments]
 prior_loss_weight = {args.prior_loss_weight}
