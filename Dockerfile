@@ -13,7 +13,8 @@ RUN apt-get update && apt-get install -y \
 RUN python -m pip install --upgrade pip setuptools wheel
 
 # Force reinstall PyTorch with proper CUDA support and system libraries
-RUN pip install --force-reinstall torch==2.1.2 torchvision==0.16.2 \
+# Install after system libraries to ensure proper linking
+RUN pip install --force-reinstall --no-cache-dir torch==2.1.2 torchvision==0.16.2 \
     --extra-index-url https://download.pytorch.org/whl/cu118
 
 # Copy requirements file

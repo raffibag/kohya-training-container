@@ -22,3 +22,4 @@ pytorch-lightning
 tensorboard
 wandb
 networkx==2.8.8
+voluptuous
