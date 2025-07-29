@@ -131,14 +131,21 @@ def prepare_dataset(training_dir, instance_prompt):
     
     logger.info(f"Found {len(image_files)} training images in {source_dir}")
     
+    # Auto-detect training type for optimal repeat calculation
+    _, training_type = detect_training_type(instance_prompt, str(source_dir))
+    
+    # Calculate optimal repeats
+    optimal_repeats = calculate_optimal_repeats(len(image_files), training_type)
+    
     # Create Kohya-compatible directory structure
-    # Kohya expects: parent_dir/subfolder/images
+    # Kohya expects: parent_dir/repeats_subfolder/images
     kohya_parent_dir = Path("/tmp/kohya_dataset")  
-    kohya_images_dir = kohya_parent_dir / "train_images"
+    kohya_images_dir = kohya_parent_dir / f"{optimal_repeats}_training"
     kohya_images_dir.mkdir(parents=True, exist_ok=True)
     
     logger.info(f"Creating Kohya dataset structure at: {kohya_parent_dir}")
     logger.info(f"Images will be in: {kohya_images_dir}")
+    logger.info(f"Using {optimal_repeats} repeats for {training_type} training")
     
     # Copy images and create captions in the Kohya structure
     import shutil
@@ -270,17 +277,21 @@ def run_kohya_training(config, dataset_path):
         return False
 
 def detect_training_type(instance_prompt, training_dir):
-    """Auto-detect if this is character or style training"""
+    """Auto-detect training type: character, style, or concept"""
     
-    # Check prompt for character indicators
-    character_keywords = ['person', 'man', 'woman', 'character', 'actor', 'model']
-    style_keywords = ['style', 'photography', 'art', 'painting', 'aesthetic']
+    # Character indicators
+    character_keywords = ['person', 'man', 'woman', 'character', 'actor', 'model', 'individual']
+    # Style indicators  
+    style_keywords = ['style', 'photography', 'art', 'painting', 'aesthetic', 'photographer']
+    # Concept indicators
+    concept_keywords = ['concept', 'object', 'building', 'vehicle', 'clothing', 'accessory']
     
     prompt_lower = instance_prompt.lower()
     
     # Count indicators
     char_score = sum(1 for kw in character_keywords if kw in prompt_lower)
     style_score = sum(1 for kw in style_keywords if kw in prompt_lower)
+    concept_score = sum(1 for kw in concept_keywords if kw in prompt_lower)
     
     # Check directory structure for hints
     path_lower = str(training_dir).lower()
@@ -288,14 +299,70 @@ def detect_training_type(instance_prompt, training_dir):
         char_score += 2
     elif 'style' in path_lower or 'photographer' in path_lower:
         style_score += 2
+    elif 'concept' in path_lower or 'object' in path_lower:
+        concept_score += 2
     
-    is_character = char_score > style_score
-    training_type = "character" if is_character else "style"
+    # Determine training type
+    scores = {'character': char_score, 'style': style_score, 'concept': concept_score}
+    training_type = max(scores, key=scores.get)
+    
+    # Fallback to character if tied
+    if char_score == style_score == concept_score:
+        training_type = "character"
+    
+    is_character = training_type == "character"
     
     logger.info(f"Auto-detected training type: {training_type}")
-    logger.info(f"Character score: {char_score}, Style score: {style_score}")
+    logger.info(f"Scores - Character: {char_score}, Style: {style_score}, Concept: {concept_score}")
     
     return is_character, training_type
+
+def calculate_optimal_repeats(num_images, training_type, epochs=6, target_steps_range=(800, 1200)):
+    """Calculate optimal repeat count based on training parameters"""
+    
+    # Target steps by training type
+    type_targets = {
+        'character': 1000,  # Need good identity learning
+        'style': 800,       # Less repetition to avoid overfitting style quirks  
+        'concept': 1200     # Abstract concepts need more exposure
+    }
+    
+    target_steps = type_targets.get(training_type, 1000)
+    
+    # Calculate base repeats
+    base_repeats = target_steps // (num_images * epochs)
+    
+    # Apply training type specific adjustments
+    if training_type == "character":
+        # Characters need consistent identity learning
+        min_repeats, max_repeats = 8, 25
+    elif training_type == "style":
+        # Styles should avoid overfitting to specific compositions
+        min_repeats, max_repeats = 4, 15
+    elif training_type == "concept":
+        # Concepts need more repetition to learn abstract features
+        min_repeats, max_repeats = 10, 30
+    else:
+        # Default fallback
+        min_repeats, max_repeats = 8, 20
+    
+    # Adjust based on dataset size
+    if num_images <= 5:
+        base_repeats = int(base_repeats * 1.5)  # Boost for small datasets
+    elif num_images >= 20:
+        base_repeats = int(base_repeats * 0.8)  # Reduce for large datasets
+    
+    # Clamp to reasonable range
+    optimal_repeats = max(min_repeats, min(base_repeats, max_repeats))
+    
+    total_steps = num_images * optimal_repeats * epochs
+    
+    logger.info(f"Repeat calculation for {training_type} training:")
+    logger.info(f"  Dataset: {num_images} images, {epochs} epochs")
+    logger.info(f"  Optimal repeats: {optimal_repeats}")
+    logger.info(f"  Total training steps: {total_steps}")
+    
+    return optimal_repeats
 
 def setup_dreambooth_regularization(config, training_type, dataset_path):
     """Setup regularization images for DreamBooth character training"""
