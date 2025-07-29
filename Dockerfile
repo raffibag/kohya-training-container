@@ -12,7 +12,7 @@ RUN python -m pip install --upgrade pip setuptools wheel
 
 # PyTorch 2.1.2 and torchvision are already installed in the base image
 # But let's ensure we have the exact compatible versions
-RUN pip install torch==2.1.2 torchvision==0.16.1 --index-url https://download.pytorch.org/whl/cu121
+RUN pip install torch==2.1.2 torchvision==0.16.2 --index-url https://download.pytorch.org/whl/cu121
 
 # Clone Kohya's training scripts
 RUN git clone https://github.com/kohya-ss/sd-scripts.git /kohya
