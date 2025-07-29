@@ -26,6 +26,7 @@ RUN pip install xformers --index-url https://download.pytorch.org/whl/cu121
 RUN pip install datasets
 RUN pip install safetensors
 RUN pip install opencv-python-headless
+RUN pip install toml
 RUN pip install gradio
 RUN pip install altair
 RUN pip install easygui
