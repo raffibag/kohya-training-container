@@ -45,6 +45,7 @@ WORKDIR /opt/ml/code
 ENV PYTHONPATH=/kohya:/opt/ml/code
 ENV SAGEMAKER_PROGRAM=train_wrapper.py
 ENV LD_LIBRARY_PATH=/usr/local/cuda/lib64:$LD_LIBRARY_PATH
+ENV NETWORKX_BACKENDS=numpy
 
 # Remove direct entrypoint to let SageMaker handle it properly
 ENTRYPOINT []
