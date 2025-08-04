@@ -413,6 +413,85 @@ def calculate_optimal_repeats(num_images, training_type, epochs=8, target_steps_
     
     return optimal_repeats
 
+def analyze_caption_sources(dataset_path: str) -> Dict:
+    """
+    Analyze caption sources to track automated vs manual vs generated
+    
+    Args:
+        dataset_path: Path to prepared dataset directory
+        
+    Returns:
+        Analysis results
+    """
+    dataset_path = Path(dataset_path)
+    
+    # Find all caption files
+    caption_files = list(dataset_path.rglob("*.txt"))
+    
+    analysis = {
+        "total_captions": len(caption_files),
+        "automated_blip2": 0,
+        "manual_ground_truth": 0,
+        "generated_fallback": 0,
+        "existing_preserved": 0,
+        "detailed_breakdown": []
+    }
+    
+    for caption_file in caption_files:
+        try:
+            with open(caption_file, 'r') as f:
+                caption_content = f.read().strip()
+            
+            # Determine source based on content patterns
+            source_type = "unknown"
+            
+            # Check for BLIP2 patterns (detailed, structured captions)
+            if len(caption_content.split(',')) >= 4 and len(caption_content) > 50:
+                source_type = "automated_blip2"
+                analysis["automated_blip2"] += 1
+            
+            # Check for Ground Truth patterns (very detailed, human-like)
+            elif "looking" in caption_content and "expression" in caption_content and len(caption_content) > 60:
+                source_type = "manual_ground_truth"
+                analysis["manual_ground_truth"] += 1
+            
+            # Check for simple instance prompt fallbacks
+            elif len(caption_content.split()) <= 5:
+                source_type = "generated_fallback"
+                analysis["generated_fallback"] += 1
+            
+            # Everything else is likely preserved existing captions
+            else:
+                source_type = "existing_preserved"
+                analysis["existing_preserved"] += 1
+            
+            analysis["detailed_breakdown"].append({
+                "file": caption_file.name,
+                "source": source_type,
+                "length": len(caption_content),
+                "word_count": len(caption_content.split()),
+                "preview": caption_content[:100] + "..." if len(caption_content) > 100 else caption_content
+            })
+            
+        except Exception as e:
+            logger.warning(f"Could not analyze caption {caption_file}: {e}")
+    
+    # Calculate percentages
+    if analysis["total_captions"] > 0:
+        analysis["percentages"] = {
+            "automated_blip2": (analysis["automated_blip2"] / analysis["total_captions"]) * 100,
+            "manual_ground_truth": (analysis["manual_ground_truth"] / analysis["total_captions"]) * 100,
+            "generated_fallback": (analysis["generated_fallback"] / analysis["total_captions"]) * 100,
+            "existing_preserved": (analysis["existing_preserved"] / analysis["total_captions"]) * 100
+        }
+    
+    logger.info(f"Caption source analysis: BLIP2={analysis['automated_blip2']}, "
+               f"Ground Truth={analysis['manual_ground_truth']}, "
+               f"Fallback={analysis['generated_fallback']}, "
+               f"Existing={analysis['existing_preserved']}")
+    
+    return analysis
+
 def setup_dreambooth_regularization(config, training_type, dataset_path):
     """Setup regularization images for DreamBooth character training"""
     
@@ -703,6 +782,9 @@ def main():
         else:
             logger.info(f"Successfully copied {model_files_copied} model file(s)")
         
+        # Analyze caption sources for tracking
+        caption_analysis = analyze_caption_sources(dataset_path)
+        
         # Create metadata
         metadata = {
             "model_type": "SDXL LoRA",
@@ -716,7 +798,9 @@ def main():
             "training_steps": config.max_train_steps or (config.num_train_epochs * 100),  # estimate
             "base_model": config.pretrained_model_name,
             "files_copied": [str(f.name) for f in copied_files],
-            "total_files": len(copied_files)
+            "total_files": len(copied_files),
+            "caption_analysis": caption_analysis,
+            "training_timestamp": datetime.now().isoformat()
         }
         
         metadata_file = output_dir / "metadata.json"
