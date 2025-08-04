@@ -48,8 +48,44 @@ def get_config():
             
             # Training configuration from hyperparameters
             self.pretrained_model_name = get_hp("pretrained-model-name", "stabilityai/stable-diffusion-xl-base-1.0")
-            self.instance_prompt = get_hp("instance-prompt", "a photo of a person", required=True)
-            self.class_prompt = get_hp("class-prompt")
+            
+            # Support both single prompt (backward compatibility) and multiple prompts
+            instance_prompt_raw = get_hp("instance-prompt", required=False)
+            instance_prompts_raw = get_hp("instance-prompts", required=False)
+            
+            if instance_prompts_raw:
+                # New format: multiple prompts as JSON array string
+                import json
+                try:
+                    self.instance_prompts = json.loads(instance_prompts_raw) if isinstance(instance_prompts_raw, str) else instance_prompts_raw
+                except:
+                    self.instance_prompts = [instance_prompts_raw]
+            elif instance_prompt_raw:
+                # Old format: single prompt
+                self.instance_prompts = [instance_prompt_raw]
+            else:
+                # Default fallback
+                self.instance_prompts = ["a photo of a person"]
+            
+            # For backward compatibility
+            self.instance_prompt = self.instance_prompts[0]
+            
+            # Handle class prompts similarly
+            class_prompt_raw = get_hp("class-prompt", required=False)
+            class_prompts_raw = get_hp("class-prompts", required=False)
+            
+            if class_prompts_raw:
+                import json
+                try:
+                    self.class_prompts = json.loads(class_prompts_raw) if isinstance(class_prompts_raw, str) else class_prompts_raw
+                except:
+                    self.class_prompts = [class_prompts_raw]
+            elif class_prompt_raw:
+                self.class_prompts = [class_prompt_raw]
+            else:
+                self.class_prompts = None
+            
+            self.class_prompt = self.class_prompts[0] if self.class_prompts else None
             self.num_train_epochs = int(get_hp("num-train-epochs", "4"))
             self.train_batch_size = int(get_hp("train-batch-size", "1"))
             self.learning_rate = float(get_hp("learning-rate", "1e-4"))
@@ -91,7 +127,7 @@ def get_config():
     
     return Config()
 
-def prepare_dataset(training_dir, instance_prompt):
+def prepare_dataset(training_dir, instance_prompts):
     """Prepare dataset directory structure for Kohya"""
     logger.info(f"Training directory contents: {os.listdir(training_dir)}")
     
@@ -131,8 +167,8 @@ def prepare_dataset(training_dir, instance_prompt):
     
     logger.info(f"Found {len(image_files)} training images in {source_dir}")
     
-    # Auto-detect training type for optimal repeat calculation
-    _, training_type = detect_training_type(instance_prompt, str(source_dir))
+    # Auto-detect training type for optimal repeat calculation (use first prompt for detection)
+    _, training_type = detect_training_type(instance_prompts[0], str(source_dir))
     
     # Calculate optimal repeats
     optimal_repeats = calculate_optimal_repeats(len(image_files), training_type)
@@ -149,7 +185,14 @@ def prepare_dataset(training_dir, instance_prompt):
     
     # Copy images and create captions in the Kohya structure
     import shutil
-    for image_file in image_files:
+    import random
+    
+    # Log the prompts being used
+    logger.info(f"Using {len(instance_prompts)} instance prompts for caption variation:")
+    for i, prompt in enumerate(instance_prompts):
+        logger.info(f"  {i+1}. {prompt}")
+    
+    for idx, image_file in enumerate(image_files):
         # Copy image
         dest_image = kohya_images_dir / image_file.name
         shutil.copy2(image_file, dest_image)
@@ -159,12 +202,18 @@ def prepare_dataset(training_dir, instance_prompt):
         dest_caption = dest_image.with_suffix('.txt')
         
         if source_caption.exists():
+            # If caption exists, we could optionally prepend with varied instance prompts
+            # For now, just copy as-is to respect existing captions
             shutil.copy2(source_caption, dest_caption)
             logger.info(f"Copied caption for {image_file.name}")
         else:
+            # Rotate through prompts for variety (ensures even distribution)
+            prompt_idx = idx % len(instance_prompts)
+            selected_prompt = instance_prompts[prompt_idx]
+            
             with open(dest_caption, 'w') as f:
-                f.write(instance_prompt)
-            logger.info(f"Created caption for {image_file.name}")
+                f.write(selected_prompt)
+            logger.info(f"Created caption for {image_file.name} using prompt: {selected_prompt}")
     
     logger.info(f"Prepared {len(image_files)} images in Kohya format")
     
@@ -376,22 +425,32 @@ def setup_dreambooth_regularization(config, training_type, dataset_path):
     reg_dir = Path("/tmp/regularization_images")
     reg_dir.mkdir(exist_ok=True)
     
-    # Extract class name from instance prompt
-    # "a photo of john person" -> "person"
-    words = config.instance_prompt.lower().split()
-    class_word = "person"  # default
+    # If class prompts are provided, use them
+    if config.class_prompts:
+        # Use the first class prompt for DreamBooth setup
+        config.class_prompt = config.class_prompts[0]
+        logger.info(f"Using provided class prompts ({len(config.class_prompts)} variations)")
+        for i, prompt in enumerate(config.class_prompts):
+            logger.info(f"  Class prompt {i+1}: {prompt}")
+    else:
+        # Auto-generate from instance prompt if not provided
+        # Extract class name from first instance prompt
+        # "a photo of john person" -> "person"
+        words = config.instance_prompt.lower().split()
+        class_word = "person"  # default
+        
+        if "person" in words:
+            class_word = "person"
+        elif "man" in words:
+            class_word = "man"
+        elif "woman" in words:
+            class_word = "woman"
+        
+        config.class_prompt = f"a photo of a {class_word}"
     
-    if "person" in words:
-        class_word = "person"
-    elif "man" in words:
-        class_word = "man"
-    elif "woman" in words:
-        class_word = "woman"
-    
-    config.class_prompt = f"a photo of a {class_word}"
     config.class_data_dir = str(reg_dir)
     
-    logger.info(f"DreamBooth enabled with class prompt: {config.class_prompt}")
+    logger.info(f"DreamBooth enabled with primary class prompt: {config.class_prompt}")
     logger.info(f"Regularization directory: {config.class_data_dir}")
     
     return str(reg_dir)
@@ -453,7 +512,9 @@ def main():
     logger.info("Starting Kohya-based SDXL training")
     logger.info(f"Training directory: {config.training_dir}")
     logger.info(f"Model output directory: {config.model_dir}")
-    logger.info(f"Instance prompt: {config.instance_prompt}")
+    logger.info(f"Instance prompts ({len(config.instance_prompts)}): {config.instance_prompts}")
+    if config.class_prompts:
+        logger.info(f"Class prompts ({len(config.class_prompts)}): {config.class_prompts}")
     
     # Check if directories exist
     if not os.path.exists(config.training_dir):
@@ -468,7 +529,7 @@ def main():
     is_character, training_type = detect_training_type(config.instance_prompt, config.training_dir)
     
     # Prepare dataset
-    dataset_path = prepare_dataset(config.training_dir, config.instance_prompt)
+    dataset_path = prepare_dataset(config.training_dir, config.instance_prompts)
     
     # Setup DreamBooth for character training
     reg_dir = setup_dreambooth_regularization(config, training_type, dataset_path)
@@ -646,7 +707,10 @@ def main():
         metadata = {
             "model_type": "SDXL LoRA",
             "training_method": "Kohya DreamBooth + LoRA",
-            "instance_prompt": config.instance_prompt,
+            "instance_prompt": config.instance_prompt,  # Keep for backward compatibility
+            "instance_prompts": config.instance_prompts,  # All prompts used
+            "class_prompts": config.class_prompts if config.class_prompts else None,
+            "prompt_variation_count": len(config.instance_prompts),
             "lora_rank": config.lora_rank,
             "lora_alpha": config.lora_alpha,
             "training_steps": config.max_train_steps or (config.num_train_epochs * 100),  # estimate
