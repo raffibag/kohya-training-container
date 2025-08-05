@@ -56,6 +56,15 @@ RUN pip install -e .
 COPY train_wrapper.py /opt/ml/code/train_wrapper.py
 COPY kohya_config.py /opt/ml/code/kohya_config.py
 
+# Copy captioning and endpoint scripts
+COPY auto_caption_s3_dataset.py /opt/ml/code/auto_caption_s3_dataset.py
+COPY automated_schema_labeler.py /opt/ml/code/automated_schema_labeler.py
+COPY simple_auto_caption.py /opt/ml/code/simple_auto_caption.py
+COPY serve /opt/ml/code/serve
+
+# Make serve script executable
+RUN chmod +x /opt/ml/code/serve
+
 # Set environment variables
 ENV PYTHONPATH=/kohya:/opt/ml/code
 ENV SAGEMAKER_PROGRAM=train_wrapper.py
