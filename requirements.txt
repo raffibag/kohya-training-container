@@ -1,5 +1,6 @@
-torch==2.1.2
-torchvision==0.16.2
+# PyTorch already installed in base image with CUDA 11.8 support
+# torch==2.1.2
+# torchvision==0.16.2
 opencv-python-headless
 pillow
 scipy
@@ -8,7 +9,8 @@ imagesize
 safetensors
 transformers
 accelerate
-bitsandbytes
+# Skip bitsandbytes for now - it pulls CUDA 12
+# bitsandbytes
 diffusers
 datasets
 omegaconf
@@ -18,11 +20,14 @@ gradio
 altair
 easygui
 einops
-pytorch-lightning
+# Skip pytorch-lightning - it pulls CUDA 12 deps
+# pytorch-lightning  
 tensorboard
 wandb
 networkx==2.8.8
 voluptuous
 flask
 boto3
-git+https://github.com/openai/CLIP.git
+# Using ftfy and regex manually instead of git CLIP to avoid torch upgrades
+ftfy
+regex
