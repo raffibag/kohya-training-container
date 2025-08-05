@@ -5,9 +5,9 @@ Provides interactive access for running captioning and other ML tasks
 """
 
 import os
+import sys
 import json
 import logging
-import flask
 import subprocess
 import tempfile
 from pathlib import Path
@@ -16,13 +16,50 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+# Try to import Flask with better error handling
+try:
+    import flask
+    logger.info("Flask imported successfully")
+except ImportError as e:
+    logger.error(f"Failed to import Flask: {e}")
+    sys.exit(1)
+
 # Initialize Flask app
 app = flask.Flask(__name__)
+logger.info("Flask app initialized")
 
 @app.route('/ping', methods=['GET'])
 def ping():
     """Health check endpoint"""
     return flask.Response(response='{"status": "healthy"}\n', status=200, mimetype='application/json')
+
+@app.route('/test', methods=['GET'])
+def test():
+    """Test endpoint to check basic functionality"""
+    try:
+        import torch
+        cuda_available = torch.cuda.is_available()
+        
+        return flask.Response(
+            response=json.dumps({
+                'status': 'ok',
+                'torch_version': torch.__version__,
+                'cuda_available': cuda_available,
+                'python_version': sys.version,
+                'working_directory': os.getcwd()
+            }) + '\n',
+            status=200,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        return flask.Response(
+            response=json.dumps({
+                'status': 'error',
+                'error': str(e)
+            }) + '\n',
+            status=500,
+            mimetype='application/json'
+        )
 
 @app.route('/invocations', methods=['POST'])
 def invocations():
@@ -72,6 +109,21 @@ def handle_captioning(data):
             return flask.Response(
                 response='{"error": "Missing required parameters: bucket, prefix, trigger_word"}\n',
                 status=400,
+                mimetype='application/json'
+            )
+        
+        # First test if the captioning script can import its dependencies
+        test_cmd = ['python', '-c', 'import sys; sys.path.append("/opt/ml/code"); import auto_caption_s3_dataset; print("Dependencies OK")']
+        test_result = subprocess.run(test_cmd, capture_output=True, text=True, timeout=60)
+        
+        if test_result.returncode != 0:
+            return flask.Response(
+                response=json.dumps({
+                    'error': 'Captioning script dependencies failed',
+                    'details': test_result.stderr,
+                    'stdout': test_result.stdout
+                }) + '\n',
+                status=500,
                 mimetype='application/json'
             )
         
