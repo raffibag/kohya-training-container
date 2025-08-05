@@ -23,3 +23,6 @@ tensorboard
 wandb
 networkx==2.8.8
 voluptuous
+flask
+boto3
+openai-clip-torch
