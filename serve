@@ -1,0 +1,173 @@
+#!/usr/bin/env python3
+"""
+SageMaker-compatible serve script for Kohya Training Container
+Provides interactive access for running captioning and other ML tasks
+"""
+
+import os
+import json
+import logging
+import flask
+import subprocess
+import tempfile
+from pathlib import Path
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# Initialize Flask app
+app = flask.Flask(__name__)
+
+@app.route('/ping', methods=['GET'])
+def ping():
+    """Health check endpoint"""
+    return flask.Response(response='{"status": "healthy"}\n', status=200, mimetype='application/json')
+
+@app.route('/invocations', methods=['POST'])
+def invocations():
+    """Main inference endpoint - handles captioning requests"""
+    try:
+        # Get request data
+        data = flask.request.get_json()
+        
+        if not data:
+            return flask.Response(
+                response='{"error": "No JSON data provided"}\n',
+                status=400,
+                mimetype='application/json'
+            )
+        
+        # Handle different command types
+        command_type = data.get('command_type', 'caption')
+        
+        if command_type == 'caption':
+            return handle_captioning(data)
+        elif command_type == 'shell':
+            return handle_shell_command(data)
+        else:
+            return flask.Response(
+                response=f'{{"error": "Unknown command_type: {command_type}"}}\n',
+                status=400,
+                mimetype='application/json'
+            )
+            
+    except Exception as e:
+        logger.error(f"Error in invocations: {str(e)}")
+        return flask.Response(
+            response=f'{{"error": "{str(e)}"}}\n',
+            status=500,
+            mimetype='application/json'
+        )
+
+def handle_captioning(data):
+    """Handle captioning requests"""
+    try:
+        bucket = data.get('bucket')
+        prefix = data.get('prefix') 
+        trigger_word = data.get('trigger_word')
+        max_images = data.get('max_images')
+        
+        if not all([bucket, prefix, trigger_word]):
+            return flask.Response(
+                response='{"error": "Missing required parameters: bucket, prefix, trigger_word"}\n',
+                status=400,
+                mimetype='application/json'
+            )
+        
+        # Build command
+        cmd = [
+            'python', '/opt/ml/code/auto_caption_s3_dataset.py',
+            bucket, prefix, trigger_word
+        ]
+        
+        if max_images:
+            cmd.extend(['--max-images', str(max_images)])
+        
+        # Run captioning script
+        logger.info(f"Running captioning command: {' '.join(cmd)}")
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=3600)
+        
+        response_data = {
+            'status': 'completed' if result.returncode == 0 else 'failed',
+            'returncode': result.returncode,
+            'stdout': result.stdout,
+            'stderr': result.stderr
+        }
+        
+        return flask.Response(
+            response=json.dumps(response_data) + '\n',
+            status=200,
+            mimetype='application/json'
+        )
+        
+    except subprocess.TimeoutExpired:
+        return flask.Response(
+            response='{"error": "Captioning process timed out"}\n',
+            status=408,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        logger.error(f"Error in captioning: {str(e)}")
+        return flask.Response(
+            response=f'{{"error": "{str(e)}"}}\n',
+            status=500,
+            mimetype='application/json'
+        )
+
+def handle_shell_command(data):
+    """Handle arbitrary shell commands (use with caution)"""
+    try:
+        command = data.get('command')
+        working_dir = data.get('working_dir', '/opt/ml/code')
+        timeout = data.get('timeout', 300)
+        
+        if not command:
+            return flask.Response(
+                response='{"error": "No command provided"}\n',
+                status=400,
+                mimetype='application/json'
+            )
+        
+        logger.info(f"Running shell command: {command}")
+        result = subprocess.run(
+            command, 
+            shell=True, 
+            capture_output=True, 
+            text=True, 
+            timeout=timeout,
+            cwd=working_dir
+        )
+        
+        response_data = {
+            'status': 'completed' if result.returncode == 0 else 'failed',
+            'returncode': result.returncode,
+            'stdout': result.stdout,
+            'stderr': result.stderr,
+            'command': command
+        }
+        
+        return flask.Response(
+            response=json.dumps(response_data) + '\n',
+            status=200,
+            mimetype='application/json'
+        )
+        
+    except subprocess.TimeoutExpired:
+        return flask.Response(
+            response=f'{{"error": "Command timed out after {timeout}s"}}\n',
+            status=408,
+            mimetype='application/json'
+        )
+    except Exception as e:
+        logger.error(f"Error in shell command: {str(e)}")
+        return flask.Response(
+            response=f'{{"error": "{str(e)}"}}\n',
+            status=500,
+            mimetype='application/json'
+        )
+
+if __name__ == '__main__':
+    # SageMaker serves on port 8080
+    port = int(os.environ.get('SAGEMAKER_BIND_TO_PORT', '8080'))
+    app.run(host='0.0.0.0', port=port)
