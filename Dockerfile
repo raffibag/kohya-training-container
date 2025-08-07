@@ -5,8 +5,13 @@ FROM pytorch-base:ultra-lean
 ENV DEBIAN_FRONTEND=noninteractive
 ENV TZ=UTC
 
-# Install git for cloning repos
-RUN apt-get update && apt-get install -y --no-install-recommends git && \
+# Install git for cloning repos and build tools for sagemaker-training
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    git \
+    gcc \
+    g++ \
+    make \
+    python3-dev && \
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
 # Set working directory
