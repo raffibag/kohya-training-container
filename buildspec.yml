@@ -60,6 +60,7 @@ phases:
         WORKDIR /opt/ml/code
         EOF
       - docker build -f pytorch-base.Dockerfile -t $BASE_REPO_URI:$IMAGE_TAG .
+      - docker tag $BASE_REPO_URI:$IMAGE_TAG pytorch-base:$IMAGE_TAG
       - docker push $BASE_REPO_URI:$IMAGE_TAG
       
       # Stage 2: Build kohya-training:ultra-lean
