@@ -12,7 +12,7 @@ iam = boto3.client('iam', region_name='us-west-2')
 # Configuration
 ROLE_ARN = "arn:aws:iam::796245059390:role/CharacterAIPipelineStack-SageMakerExecutionRole7843-JiJ98R0jHRub"
 IMAGE_URI = "796245059390.dkr.ecr.us-west-2.amazonaws.com/kohya-training:ultra-lean"
-INSTANCE_TYPE = "ml.g4dn.xlarge"  # GPU instance for testing
+INSTANCE_TYPE = "ml.g5.2xlarge"  # GPU instance for testing
 
 def create_model():
     """Create SageMaker model from ECR image"""

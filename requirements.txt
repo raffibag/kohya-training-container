@@ -1,33 +1,52 @@
-# PyTorch already installed in base image with CUDA 11.8 support
-# torch==2.1.2
-# torchvision==0.16.2
-opencv-python-headless
-pillow
-scipy
-tqdm
-imagesize
-safetensors
-transformers
-accelerate
-# Skip bitsandbytes for now - it pulls CUDA 12
-# bitsandbytes
-diffusers
-datasets
-omegaconf
-peft
-toml
-gradio
-altair
-easygui
-einops
-# Skip pytorch-lightning - it pulls CUDA 12 deps
-# pytorch-lightning  
-tensorboard
-wandb
-networkx==2.8.8
-voluptuous
-flask
-boto3
-# Using ftfy and regex manually instead of git CLIP to avoid torch upgrades
-ftfy
-regex
+# == DO NOT INSTALL torch/torchvision/xformers here (in base already) ==
+
+# Core numerics
+numpy==1.26.4
+scipy==1.11.4
+einops==0.7.0
+safetensors==0.4.2
+
+# HF stack (pins known-good with SDXL/Kohya)
+transformers==4.40.2
+accelerate==0.27.2
+diffusers==0.27.2
+peft==0.10.0
+datasets==2.18.0
+timm==0.9.16
+sentencepiece==0.1.99
+protobuf==4.25.3
+filelock==3.13.1
+tokenizers==0.15.2
+regex==2024.5.10
+requests==2.31.0
+tqdm==4.66.4
+pyyaml==6.0.1
+omegaconf==2.3.0
+toml==0.10.2
+tomli==2.0.1
+
+# Image I/O / processing
+opencv-python-headless==4.9.0.80
+Pillow==10.2.0
+scikit-image==0.22.0
+imagesize==1.4.1
+
+# Logging/UX (optional but useful in training)
+rich==13.7.0
+tensorboard==2.15.1     # safe with protobuf pin
+wandb==0.16.6           # optional; remove if not used
+
+# Runtime/AWS
+boto3==1.34.79
+sagemaker-training==4.6.1
+
+# Validation/classic deps
+ftfy==6.1.1
+networkx==2.8.8         # you’ve been pinning this; keep if kohya expects it
+voluptuous==0.14.2
+
+# UI/dev-only (recommend remove in headless training images)
+# gradio==4.29.0
+# altair==5.3.0
+# easygui==0.98.3
+# flask==3.0.2
