@@ -14,7 +14,7 @@ peft==0.10.0
 datasets==2.18.0
 timm==0.9.16
 sentencepiece==0.1.99
-protobuf==4.25.3
+protobuf==4.23.4
 filelock==3.13.1
 tokenizers==0.19.1
 regex==2024.5.10
@@ -33,7 +33,7 @@ imagesize==1.4.1
 
 # Logging/UX (optional but useful in training)
 rich==13.7.0
-tensorboard==2.15.1     # safe with protobuf pin
+# tensorboard==2.15.1     # removed due to protobuf conflicts
 wandb==0.16.6           # optional; remove if not used
 
 # Runtime/AWS
