@@ -28,6 +28,9 @@ except ImportError as e:
 app = flask.Flask(__name__)
 logger.info("Flask app initialized")
 
+# S3 schema location
+SCHEMA_S3_URI = "s3://vibez-data-lake-796245059390-us-west-2/schemas/comprehensive_labeling_schemas.yaml"
+
 @app.route('/ping', methods=['GET'])
 def ping():
     """Health check endpoint"""
@@ -127,10 +130,11 @@ def handle_captioning(data):
                 mimetype='application/json'
             )
         
-        # Build command
+        # Build command with schema from S3
         cmd = [
             'python', '/opt/ml/code/auto_caption_s3_dataset.py',
-            bucket, prefix, trigger_word
+            bucket, prefix, trigger_word,
+            '--schema', SCHEMA_S3_URI  # Add schema from S3
         ]
         
         if max_images:

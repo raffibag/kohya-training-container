@@ -17,6 +17,50 @@ from PIL import Image
 from transformers import BlipProcessor, BlipForConditionalGeneration
 import clip
 
+# Default schema embedded in the script
+DEFAULT_SCHEMA = {
+    "photographer_style_schema": {
+        "lighting_fundamentals": [
+            "natural_sunlight", "golden_hour", "blue_hour", "overcast_diffused",
+            "studio_strobe", "continuous_tungsten", "mixed_lighting"
+        ],
+        "lighting_quality": [
+            "hard_directional", "soft_diffused", "high_contrast", "low_contrast",
+            "dramatic_shadows", "rim_backlighting", "chiaroscuro"
+        ],
+        "composition_rules": [
+            "rule_of_thirds", "golden_ratio", "centered_symmetry", "leading_lines",
+            "negative_space", "frame_within_frame"
+        ],
+        "camera_angles": [
+            "eye_level_standard", "low_angle_heroic", "high_angle_down",
+            "dutch_tilt_dynamic", "birds_eye_overhead", "extreme_close_detail"
+        ],
+        "color_treatment": [
+            "natural_realistic", "warm_golden_tones", "cool_blue_tones",
+            "cinematic_teal_orange", "moody_desaturated", "high_saturation_vivid"
+        ]
+    },
+    "model_actor_schema": {
+        "facial_expression": [
+            "neutral", "genuine_smile", "laughing", "serious", "contemplative",
+            "confident", "playful", "intense", "relaxed", "focused"
+        ],
+        "body_pose": [
+            "standing_straight", "casual_lean", "sitting", "walking", "running",
+            "arms_crossed", "hands_on_hips", "hand_to_face", "looking_over_shoulder"
+        ],
+        "hair_style": [
+            "long_straight", "long_wavy", "short_styled", "ponytail", "bun",
+            "loose_flowing", "braided", "slicked_back"
+        ],
+        "clothing_style": [
+            "casual_wear", "formal_attire", "athletic_wear", "business_casual",
+            "evening_dress", "streetwear", "minimalist", "layered_outfit"
+        ]
+    }
+}
+
 class ContainerDatasetProcessor:
     def __init__(self, 
                  bucket_name: str,
@@ -43,28 +87,53 @@ class ContainerDatasetProcessor:
         self.device = "cuda" if torch.cuda.is_available() else "cpu"
         self.clip_model, self.clip_preprocess = clip.load("ViT-B/32", device=self.device)
         
-        # Load schema if provided
+        # Load schema - try file first, then S3, then use default
         self.schema_labels = {}
-        if schema_path and os.path.exists(schema_path):
-            with open(schema_path, 'r') as f:
-                schemas = yaml.safe_load(f)
-            self.schema_labels = self._prepare_schema_labels(schemas)
-            print(f"📋 Loaded {len(self.schema_labels)} schema labels")
+        schemas = None
         
+        if schema_path:
+            if schema_path.startswith('s3://'):
+                # Download from S3
+                print(f"📥 Downloading schema from {schema_path}")
+                try:
+                    parts = schema_path.replace('s3://', '').split('/', 1)
+                    bucket = parts[0]
+                    key = parts[1]
+                    
+                    response = self.s3.get_object(Bucket=bucket, Key=key)
+                    schemas = yaml.safe_load(response['Body'].read())
+                    print("✅ Schema loaded from S3")
+                except Exception as e:
+                    print(f"⚠️ Failed to load schema from S3: {e}")
+            elif os.path.exists(schema_path):
+                # Load from local file
+                with open(schema_path, 'r') as f:
+                    schemas = yaml.safe_load(f)
+                print(f"✅ Schema loaded from file: {schema_path}")
+        
+        # Use default schema if nothing loaded
+        if not schemas:
+            print("📋 Using default embedded schema")
+            schemas = DEFAULT_SCHEMA
+        
+        self.schema_labels = self._prepare_schema_labels(schemas)
+        print(f"📋 Loaded {len(self.schema_labels)} schema labels")
         print("✅ All models loaded successfully!")
     
     def _prepare_schema_labels(self, schemas: Dict) -> Dict[str, str]:
         """Convert schema to CLIP-friendly prompts"""
         labels = {}
         
-        if 'model_actor_schema' in schemas:
-            schema = schemas['model_actor_schema']
-            for category, items in schema.items():
-                if isinstance(items, list):
-                    for item in items:
-                        # Convert label to natural language prompt
-                        prompt = self._label_to_prompt(item, category)
-                        labels[item] = prompt
+        # Process both photographer and model schemas
+        for schema_name in ['photographer_style_schema', 'model_actor_schema']:
+            if schema_name in schemas:
+                schema = schemas[schema_name]
+                for category, items in schema.items():
+                    if isinstance(items, list):
+                        for item in items:
+                            # Convert label to natural language prompt
+                            prompt = self._label_to_prompt(item, category)
+                            labels[item] = prompt
         
         return labels
     
@@ -80,6 +149,14 @@ class ContainerDatasetProcessor:
             return f"a person with {clean_label}"
         elif 'hair' in category:
             return f"a person with {clean_label} hair"
+        elif 'composition' in category:
+            return f"a photo using {clean_label} composition"
+        elif 'color' in category:
+            return f"a photo with {clean_label} color grading"
+        elif 'angle' in category:
+            return f"a photo taken from {clean_label}"
+        elif 'clothing' in category:
+            return f"a person wearing {clean_label}"
         else:
             return f"a photo showing {clean_label}"
     
@@ -111,8 +188,14 @@ class ContainerDatasetProcessor:
     
     def generate_labels(self, image_path: str, confidence_threshold: float = 0.25) -> Dict:
         """Generate schema labels using CLIP"""
+        # Always return the expected structure
+        result = {
+            "labels_detected": {},
+            "confidence_scores": {}
+        }
+        
         if not self.schema_labels:
-            return {}
+            return result
         
         try:
             image = Image.open(image_path).convert('RGB')
@@ -132,22 +215,16 @@ class ContainerDatasetProcessor:
                 similarities = similarities.cpu().numpy()[0]
             
             # Extract labels above threshold
-            detected_labels = {}
-            confidence_scores = {}
-            
             for i, (label, confidence) in enumerate(zip(labels, similarities)):
-                confidence_scores[label] = float(confidence)
+                result["confidence_scores"][label] = float(confidence)
                 if confidence >= confidence_threshold:
-                    detected_labels[label] = float(confidence)
+                    result["labels_detected"][label] = float(confidence)
             
-            return {
-                "labels_detected": detected_labels,
-                "confidence_scores": confidence_scores
-            }
+            return result
             
         except Exception as e:
             print(f"⚠️  Label generation failed: {e}")
-            return {"labels_detected": {}, "confidence_scores": {}}
+            return result
     
     def _format_caption(self, raw_caption: str, trigger_word: str) -> str:
         """Format BLIP caption into structured format"""
