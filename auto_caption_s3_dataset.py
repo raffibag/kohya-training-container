@@ -210,6 +210,10 @@ class ContainerDatasetProcessor:
                 image_features = self.clip_model.encode_image(image_input)
                 text_features = self.clip_model.encode_text(text_tokens)
                 
+                # Convert to float32 to avoid dtype mismatches
+                image_features = image_features.float()
+                text_features = text_features.float()
+                
                 # Normalize features for cosine similarity
                 image_features = image_features / image_features.norm(dim=-1, keepdim=True)
                 text_features = text_features / text_features.norm(dim=-1, keepdim=True)
