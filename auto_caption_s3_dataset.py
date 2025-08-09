@@ -186,7 +186,7 @@ class ContainerDatasetProcessor:
             print(f"⚠️  Caption generation failed: {e}")
             return f"{trigger_word}, professional photo"
     
-    def generate_labels(self, image_path: str, confidence_threshold: float = 0.25) -> Dict:
+    def generate_labels(self, image_path: str, confidence_threshold: float = 0.3) -> Dict:
         """Generate schema labels using CLIP"""
         # Always return the expected structure
         result = {
@@ -210,9 +210,12 @@ class ContainerDatasetProcessor:
                 image_features = self.clip_model.encode_image(image_input)
                 text_features = self.clip_model.encode_text(text_tokens)
                 
-                # Calculate similarities
-                similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
-                similarities = similarities.cpu().numpy()[0]
+                # Normalize features for cosine similarity
+                image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+                text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+                
+                # Calculate raw cosine similarities (better for multi-label)
+                similarities = (image_features @ text_features.T).cpu().numpy()[0]
             
             # Extract labels above threshold
             for i, (label, confidence) in enumerate(zip(labels, similarities)):
