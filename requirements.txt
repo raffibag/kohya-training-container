@@ -26,6 +26,9 @@ datasets~=2.18
 timm~=0.9
 sentencepiece~=0.1
 
+# OpenAI CLIP for image labeling
+git+https://github.com/openai/CLIP.git
+
 # runtime
 fastapi~=0.110
 uvicorn[standard]~=0.29
