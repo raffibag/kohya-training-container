@@ -294,6 +294,114 @@ class ContainerDatasetProcessor:
         
         return formatted
     
+    def generate_enhanced_caption(self, image_path: str, trigger_word: str, detected_labels: Dict) -> str:
+        """Generate enhanced caption using BLIP + CLIP labels"""
+        try:
+            # Start with BLIP caption
+            blip_caption = self.generate_caption(image_path, trigger_word)
+            
+            if not detected_labels:
+                return blip_caption  # Fall back to BLIP if no labels
+            
+            # Organize labels by category
+            label_categories = {
+                'expressions': [],
+                'poses': [],
+                'hair': [],
+                'clothing': [],
+                'lighting': [],
+                'composition': [],
+                'color': [],
+                'style': []
+            }
+            
+            # Categorize detected labels
+            for label, confidence in detected_labels.items():
+                label_clean = label.replace('_', ' ')
+                
+                if any(word in label for word in ['expression', 'smile', 'serious', 'focused', 'confident', 'playful', 'intense', 'contemplative']):
+                    label_categories['expressions'].append(label_clean)
+                elif any(word in label for word in ['standing', 'sitting', 'pose', 'arms', 'hands', 'lean', 'walking', 'running']):
+                    label_categories['poses'].append(label_clean)
+                elif any(word in label for word in ['hair', 'straight', 'wavy', 'ponytail', 'bun', 'flowing', 'braided']):
+                    label_categories['hair'].append(label_clean)
+                elif any(word in label for word in ['wear', 'attire', 'dress', 'casual', 'formal', 'athletic', 'business', 'evening', 'street']):
+                    label_categories['clothing'].append(label_clean)
+                elif any(word in label for word in ['lighting', 'sunlight', 'golden', 'blue', 'hour', 'studio', 'natural', 'dramatic', 'soft', 'hard']):
+                    label_categories['lighting'].append(label_clean)
+                elif any(word in label for word in ['thirds', 'ratio', 'symmetry', 'lines', 'space', 'frame', 'angle', 'eye', 'level', 'overhead']):
+                    label_categories['composition'].append(label_clean)
+                elif any(word in label for word in ['tones', 'color', 'warm', 'cool', 'cinematic', 'realistic', 'vivid', 'saturated', 'moody']):
+                    label_categories['color'].append(label_clean)
+                else:
+                    label_categories['style'].append(label_clean)
+            
+            # Build enhanced caption
+            parts = [f"{trigger_word} person"]
+            
+            # Add expressions
+            if label_categories['expressions']:
+                parts.append(f"with {', '.join(label_categories['expressions'][:2])}")
+            
+            # Add poses
+            if label_categories['poses']:
+                pose = label_categories['poses'][0]
+                if 'standing' in pose:
+                    parts.append("standing confidently")
+                elif 'sitting' in pose:
+                    parts.append("sitting elegantly")  
+                else:
+                    parts.append(pose)
+            
+            # Add clothing
+            if label_categories['clothing']:
+                clothing = label_categories['clothing'][0]
+                parts.append(f"wearing {clothing}")
+            
+            # Add hair if distinctive
+            if label_categories['hair']:
+                hair = label_categories['hair'][0]
+                parts.append(f"with {hair} hair")
+            
+            # Add lighting
+            if label_categories['lighting']:
+                lighting = label_categories['lighting'][0]
+                if 'lighting' not in lighting:
+                    lighting += ' lighting'
+                parts.append(lighting)
+            
+            # Add composition
+            if label_categories['composition']:
+                comp = label_categories['composition'][0]
+                if 'composition' not in comp and 'angle' not in comp:
+                    comp += ' composition'
+                parts.append(comp)
+            
+            # Add color treatment
+            if label_categories['color']:
+                color = label_categories['color'][0]
+                parts.append(color)
+            
+            # Add style if available
+            if label_categories['style']:
+                style = label_categories['style'][0]
+                parts.append(f"{style} style")
+            
+            # Join with proper grammar
+            enhanced_caption = ', '.join(parts)
+            
+            # Ensure reasonable length (max ~150 chars for training)
+            if len(enhanced_caption) > 150:
+                # Keep first 4-5 most important parts
+                enhanced_caption = ', '.join(parts[:5])
+            
+            return enhanced_caption
+            
+        except Exception as e:
+            print(f"⚠️  Enhanced caption generation failed: {e}")
+            # Fall back to simple BLIP caption
+            return self.generate_caption(image_path, trigger_word)
+    
     def process_s3_dataset(self, 
                           s3_prefix: str,
                           trigger_word: str,
@@ -355,9 +463,9 @@ class ContainerDatasetProcessor:
                     local_path = temp_path / filename
                     self.s3.download_file(self.bucket_name, image_key, str(local_path))
                     
-                    # Generate caption and labels
-                    caption = self.generate_caption(str(local_path), trigger_word)
+                    # Generate labels first, then enhanced caption using labels
                     label_results = self.generate_labels(str(local_path))
+                    caption = self.generate_enhanced_caption(str(local_path), trigger_word, label_results["labels_detected"])
                     
                     # Save caption to S3
                     caption_key = image_key.replace(Path(image_key).suffix, '.txt')
