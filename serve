@@ -107,6 +107,7 @@ def handle_captioning(data):
         prefix = data.get('prefix') 
         trigger_word = data.get('trigger_word')
         max_images = data.get('max_images')
+        automated_percent = data.get('automated_percent', 0.95)  # Default to 95% automation
         
         if not all([bucket, prefix, trigger_word]):
             return flask.Response(
@@ -134,7 +135,8 @@ def handle_captioning(data):
         cmd = [
             'python', '/opt/ml/code/auto_caption_s3_dataset.py',
             bucket, prefix, trigger_word,
-            '--schema', SCHEMA_S3_URI  # Add schema from S3
+            '--schema', SCHEMA_S3_URI,  # Add schema from S3
+            '--automated-percent', str(automated_percent)  # Configurable automation percentage
         ]
         
         if max_images:

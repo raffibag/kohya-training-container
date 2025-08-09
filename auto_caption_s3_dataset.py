@@ -405,7 +405,7 @@ class ContainerDatasetProcessor:
     def process_s3_dataset(self, 
                           s3_prefix: str,
                           trigger_word: str,
-                          automated_percentage: float = 0.8,
+                          automated_percentage: float = 0.95,
                           max_images: int = None) -> Dict:
         """Process entire S3 dataset with captioning and labeling"""
         
@@ -526,7 +526,7 @@ def main():
     parser.add_argument("--schema", help="Path to schema YAML file")
     parser.add_argument("--profile", default="default", help="AWS profile")
     parser.add_argument("--max-images", type=int, help="Max images to process")
-    parser.add_argument("--automated-percent", type=float, default=0.8, help="Percentage for automated processing")
+    parser.add_argument("--automated-percent", type=float, default=0.95, help="Percentage for automated processing (default: 95%)")
     
     args = parser.parse_args()
     
