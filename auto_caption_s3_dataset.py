@@ -186,7 +186,7 @@ class ContainerDatasetProcessor:
             print(f"⚠️  Caption generation failed: {e}")
             return f"{trigger_word}, professional photo"
     
-    def generate_labels(self, image_path: str, confidence_threshold: float = 0.2) -> Dict:
+    def generate_labels(self, image_path: str, confidence_threshold: float = 0.2, top_k: int = 6) -> Dict:
         """Generate schema labels using CLIP"""
         # Always return the expected structure
         result = {
@@ -221,9 +221,17 @@ class ContainerDatasetProcessor:
                 # Calculate raw cosine similarities (better for multi-label)
                 similarities = (image_features @ text_features.T).cpu().numpy()[0]
             
-            # Extract labels above threshold
+            # Store all confidence scores
             for i, (label, confidence) in enumerate(zip(labels, similarities)):
                 result["confidence_scores"][label] = float(confidence)
+            
+            # Top-K selection: get the highest confidence labels
+            # Sort by confidence and take top K
+            sorted_labels = sorted(zip(labels, similarities), key=lambda x: x[1], reverse=True)
+            top_labels = sorted_labels[:top_k]
+            
+            # Only include top-K labels that also meet minimum threshold
+            for label, confidence in top_labels:
                 if confidence >= confidence_threshold:
                     result["labels_detected"][label] = float(confidence)
             
