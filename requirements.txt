@@ -47,5 +47,8 @@ tomli~=2.0
 ftfy~=6.1
 voluptuous~=0.14
 
+# logging & visualization
+tensorboard~=2.15
+
 # networkx (only if required): ~=3.2
 # wandb (only if used): ~=0.16
