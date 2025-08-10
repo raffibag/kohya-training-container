@@ -12,6 +12,7 @@ import logging
 import time
 from datetime import datetime
 from pathlib import Path
+from typing import Dict
 
 # Add Kohya to path
 sys.path.insert(0, '/kohya')
