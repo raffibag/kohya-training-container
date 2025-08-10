@@ -57,6 +57,13 @@ RUN rm -rf /root/.cache /tmp/* /var/tmp/* && \
 
 # SageMaker env
 ENV PYTHONPATH=/kohya:/opt/ml/code
-ENV SAGEMAKER_PROGRAM=train_wrapper.py
 ENV NETWORKX_BACKENDS=numpy
+
+# Create a POSIX 'train' entrypoint SageMaker expects
+RUN bash -c 'printf "#!/usr/bin/env bash\nexec \${PYTHON:-python} -u /opt/ml/code/train.py \"\$@\"\n" > /usr/local/bin/train && chmod +x /usr/local/bin/train'
+
+# Make helper script runnable and convenient (optional)
+RUN chmod +x /opt/ml/code/auto_caption_s3_dataset.py && ln -sf /opt/ml/code/auto_caption_s3_dataset.py /usr/local/bin/auto_caption
+
+# No custom entrypoint; let SageMaker call `train`
 ENTRYPOINT []

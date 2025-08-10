@@ -235,7 +235,7 @@ def run_kohya_training(config, dataset_path):
     
     # Build command
     cmd = [
-        "python", f"/kohya/{script_name}",
+        sys.executable, f"/kohya/{script_name}",
         "--config_file", config_path,
     ]
     
