@@ -519,7 +519,7 @@ class ContainerDatasetProcessor:
                     results["errors"].append(error_msg)
         
         # Save results manifest
-        manifest_key = f"{s3_prefix}/improved_automated_results.json"
+        manifest_key = f"{s3_prefix.rstrip('/')}/improved_automated_results.json"
         self.s3.put_object(
             Bucket=self.bucket_name,
             Key=manifest_key,
