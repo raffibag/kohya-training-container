@@ -186,7 +186,7 @@ class ContainerDatasetProcessor:
             print(f"⚠️  Caption generation failed: {e}")
             return f"{trigger_word}, professional photo"
     
-    def generate_labels(self, image_path: str, confidence_threshold: float = 0.3) -> Dict:
+    def generate_labels(self, image_path: str, confidence_threshold: float = 0.2) -> Dict:
         """Generate schema labels using CLIP"""
         # Always return the expected structure
         result = {
@@ -289,7 +289,13 @@ class ContainerDatasetProcessor:
         for word in clothing_words:
             if word in caption_lower:
                 clothing_start = caption_lower.find(word)
-                clothing_part = caption[clothing_start:clothing_start+20]
+                # Find end of sentence or reasonable stopping point
+                clothing_end = clothing_start + 50  # Increased from 20 to 50
+                # Try to end at word boundary
+                space_pos = caption.find(' ', clothing_end)
+                if space_pos != -1 and space_pos < clothing_start + 60:
+                    clothing_end = space_pos
+                clothing_part = caption[clothing_start:clothing_end]
                 parts.append(clothing_part.strip())
                 break
         
