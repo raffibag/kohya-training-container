@@ -538,9 +538,13 @@ def main():
     # Immediate startup confirmation with flush
     print("=== KOHYA TRAINING WRAPPER STARTED ===")
     print(f"Python version: {sys.version}")
+    print(f"Python executable: {sys.executable}")
     print(f"Script location: {__file__}")
+    print(f"Working directory: {os.getcwd()}")
     print(f"Command line args: {sys.argv}")
     print(f"Number of command line args: {len(sys.argv)}")
+    print(f"PATH: {os.environ.get('PATH', 'NOT SET')}")
+    print(f"PYTHONPATH: {os.environ.get('PYTHONPATH', 'NOT SET')}")
     print(f"=== HYPERPARAMETERS DEBUG ===")
     try:
         with open("/opt/ml/input/config/hyperparameters.json", "r") as f:

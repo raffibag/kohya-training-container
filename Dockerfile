@@ -29,7 +29,7 @@ WORKDIR /opt/ml/code
 COPY train_wrapper.py kohya_config.py ./
 COPY auto_caption_s3_dataset.py automated_schema_labeler.py simple_auto_caption.py ./
 COPY serve ./serve
-RUN chmod +x serve && ln -s /opt/ml/code/serve /usr/local/bin/serve
+RUN chmod +x serve train_wrapper.py && ln -s /opt/ml/code/serve /usr/local/bin/serve
 
 # HF caches
 ENV HF_HOME=/opt/ml/cache/huggingface
